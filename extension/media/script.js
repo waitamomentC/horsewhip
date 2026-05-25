@@ -61,8 +61,8 @@
     totalCommitsInLog: 0,
     graphZoom: 1,
     visibleColumnWindow: null,
-    /** Plugin: rel paths from VS Code open tabs; web: null */
-    openEditorPaths: isPluginHost() ? [] : null,
+    /** Plugin: workspace rel paths (explorer tree); web: null */
+    workspaceFiles: isPluginHost() ? [] : null,
     pluginDemoAllFiles: false,
   };
 
@@ -912,6 +912,87 @@
     }));
   }
 
+  function folderDisplayLabel(folderPath) {
+    if (folderPath === ROOT_BUCKET) return '(root)';
+    const parts = folderPath.split('/').filter(Boolean);
+    return `${parts[parts.length - 1]}/`;
+  }
+
+  /** VS Code Explorer order: subfolders first, then files, each A→Z. */
+  function sortExplorerChildren(children) {
+    const folders = children.filter((c) => c.type === 'folder').sort((a, b) => a.path.localeCompare(b.path));
+    const files = children.filter((c) => c.type === 'file').sort((a, b) => a.path.localeCompare(b.path));
+    return [...folders, ...files];
+  }
+
+  /** Root: top-level folders first, then root files (no __root__ bucket). */
+  function getTopLevelItemsExplorer(allFiles) {
+    const folders = new Set();
+    const rootFiles = [];
+    for (const f of allFiles) {
+      if (f.includes('/')) folders.add(`${f.split('/')[0]}/`);
+      else rootFiles.push(f);
+    }
+    const folderItems = [...folders].sort((a, b) => a.localeCompare(b)).map((p) => ({ type: 'folder', path: p }));
+    const fileItems = rootFiles.sort((a, b) => a.localeCompare(b)).map((p) => ({ type: 'file', path: p }));
+    return [...folderItems, ...fileItems];
+  }
+
+  /** Plugin / Explorer-aligned tree lanes (folders + files, correct depth & order). */
+  function collectExplorerTreeLanes(allFiles) {
+    const lanes = [];
+    const expanded = state.expandedPaths;
+
+    function walk(item, depth) {
+      if (item.type === 'file') {
+        lanes.push({
+          path: item.path,
+          type: 'file',
+          depth,
+          collapsed: false,
+          label: item.path.split('/').pop(),
+          files: [item.path],
+        });
+        return;
+      }
+
+      const folderPath = item.path;
+      const isRoot = folderPath === ROOT_BUCKET;
+      const rootFiles = item.rootFiles;
+      const label = isRoot ? '(root)' : folderDisplayLabel(folderPath);
+      const desc = filesUnderPrefix(folderPath, allFiles, rootFiles);
+      if (desc.length === 0) return;
+
+      if (!expanded.has(folderPath)) {
+        lanes.push({
+          path: folderPath,
+          type: 'folder',
+          depth,
+          collapsed: true,
+          label,
+          files: desc,
+        });
+        return;
+      }
+
+      lanes.push({
+        path: folderPath,
+        type: 'folder',
+        depth,
+        collapsed: true,
+        isHeader: true,
+        label,
+        files: desc,
+      });
+
+      sortExplorerChildren(getDirectChildren(folderPath, allFiles, rootFiles))
+        .forEach((child) => walk(child, depth + 1));
+    }
+
+    getTopLevelItemsExplorer(allFiles).forEach((item) => walk(item, 0));
+    return lanes;
+  }
+
   function collectGroupedFileLanes(allFiles) {
     const lanes = [];
     const expanded = state.expandedPaths;
@@ -970,20 +1051,34 @@
     return lanes;
   }
 
+  /** Plugin: expand all folders so tree matches a fully-open Explorer. */
+  function seedPluginExpandedPaths(allFiles) {
+    if (!isPluginHost() || !allFiles?.length) return;
+    for (const f of allFiles) {
+      if (!f.includes('/')) continue;
+      const parts = f.split('/');
+      for (let i = 1; i < parts.length; i++) {
+        state.expandedPaths.add(`${parts.slice(0, i).join('/')}/`);
+      }
+    }
+  }
+
   function collectVisibleLanes(allFiles) {
-    if (isPluginHost() || state.laneLayout === LANE_LAYOUT_FLAT) return collectFlatFileLanes(allFiles);
+    if (isPluginHost()) return collectExplorerTreeLanes(allFiles);
+    if (state.laneLayout === LANE_LAYOUT_FLAT) return collectFlatFileLanes(allFiles);
     return collectGroupedFileLanes(allFiles);
   }
 
-  /** Plugin: only files open in editor tabs (tab order); web: filter + tree/flat. */
+  /** Plugin: 工作区目录 + git 历史并集；web: filter + tree/flat. */
   function getLaneSourceFiles(parsed) {
-    let files = getFilteredFiles(parsed);
-    if (!isPluginHost()) return files;
-    if (state.pluginDemoAllFiles) return files;
-    const open = state.openEditorPaths;
-    if (!open?.length) return [];
-    const inLog = new Set(files);
-    return open.filter((p) => inLog.has(p));
+    const fromGit = getFilteredFiles(parsed);
+    if (!isPluginHost()) return fromGit;
+    if (state.pluginDemoAllFiles) return fromGit;
+    const ws = state.workspaceFiles;
+    if (!ws?.length) return fromGit;
+    const merged = new Set(fromGit);
+    ws.forEach((p) => merged.add(p));
+    return [...merged].sort((a, b) => a.localeCompare(b));
   }
 
   function isFlatLaneLayout() {
@@ -1987,11 +2082,16 @@ git reset --hard ${hash}`;
     return inner;
   }
 
+  function fileRailIndent(depth) {
+    const step = isPluginHost() ? 14 : 9;
+    return 5 + depth * step;
+  }
+
   function appendFileRailRow(lane) {
     const row = document.createElement('div');
     if (lane.isBranchLane) {
       row.className = 'file-rail__item file-rail__item--branch';
-      row.style.paddingLeft = `${5 + lane.depth * 9}px`;
+      row.style.paddingLeft = `${fileRailIndent(lane.depth)}px`;
       row.title = lane.path;
       const chev = document.createElement('span');
       chev.className = 'file-rail__chev';
@@ -2004,9 +2104,9 @@ git reset --hard ${hash}`;
       return row;
     }
 
-    if (lane.inlineFolder) {
+    if (lane.inlineFolder && !isPluginHost()) {
       row.className = 'file-rail__item file-rail__item--file file-rail__item--folder-inline';
-      row.style.paddingLeft = `${5 + lane.depth * 9}px`;
+      row.style.paddingLeft = `${fileRailIndent(lane.depth)}px`;
       row.title = lane.path;
       const chev = document.createElement('button');
       chev.type = 'button';
@@ -2019,30 +2119,48 @@ git reset --hard ${hash}`;
       });
       const label = document.createElement('span');
       label.className = 'file-rail__label';
-      label.textContent = truncatePath(lane.path.split('/').pop() || lane.label);
+      const leaf = lane.path.split('/').pop() || lane.label;
+      label.textContent = truncatePath(isPluginHost() && lane.type === 'folder' ? leaf : leaf);
       row.appendChild(chev);
       row.appendChild(createRailIcon(lane));
       row.appendChild(label);
+      if (lane.type === 'folder' && isPluginHost()) {
+        row.classList.remove('file-rail__item--file');
+        row.classList.add('file-rail__item--folder');
+        row.addEventListener('click', (e) => {
+          if (e.altKey && window.HorsewhipPluginBridge?.revealFolder) {
+            window.HorsewhipPluginBridge.revealFolder(lane.path === ROOT_BUCKET ? '' : lane.path);
+            return;
+          }
+          toggleExpand(lane.path, e.altKey);
+        });
+      }
       return row;
     }
 
-    row.className = `file-rail__item${lane.collapsed ? ' file-rail__item--folder' : ' file-rail__item--file'}`;
-    row.style.paddingLeft = `${5 + lane.depth * 9}px`;
+    row.className = `file-rail__item${lane.collapsed || lane.isHeader ? ' file-rail__item--folder' : ' file-rail__item--file'}`;
+    row.style.paddingLeft = `${fileRailIndent(lane.depth)}px`;
     const chev = document.createElement('span');
     chev.className = 'file-rail__chev';
-    chev.textContent = lane.collapsed ? '▸' : '·';
+    chev.textContent = lane.isHeader ? '▾' : (lane.collapsed ? '▸' : '·');
     const label = document.createElement('span');
     label.className = 'file-rail__label';
-    const display = lane.collapsed
-      ? shortenFolderLabel(lane.label)
+    const display = (lane.collapsed || lane.isHeader)
+      ? (isPluginHost() ? lane.label : shortenFolderLabel(lane.label))
       : (isFlatLaneLayout() ? lane.path : (lane.path.split('/').pop() || lane.label));
     label.textContent = truncatePath(display);
     row.title = lane.path === ROOT_BUCKET ? '(root)' : lane.path;
-    if (lane.collapsed) {
+    if (lane.collapsed || lane.isHeader) {
       row.classList.add('file-rail__item--folder');
       row.appendChild(createRailIcon(lane));
       row.appendChild(chev);
-      row.addEventListener('click', (e) => toggleExpand(lane.path, e.altKey));
+      row.addEventListener('click', (e) => {
+        if (e.altKey && isPluginHost() && window.HorsewhipPluginBridge?.revealFolder) {
+          window.HorsewhipPluginBridge.revealFolder(lane.path === ROOT_BUCKET ? '' : lane.path);
+          return;
+        }
+        toggleExpand(lane.path, e.altKey);
+      });
     } else {
       row.appendChild(createRailIcon(lane));
     }
@@ -2203,18 +2321,6 @@ git reset --hard ${hash}`;
         .attr('stroke', lane.colorDim)
         .attr('stroke-opacity', 0.42);
 
-      if (isPluginHost()) {
-        const name = lane.isBranchLane ? lane.label : (lane.path || lane.label);
-        const short = name.length > 22 ? `…${name.slice(-21)}` : name;
-        root.append('text')
-          .attr('class', 'lane-label-plugin')
-          .attr('x', 2)
-          .attr('y', yScale(laneIndex) + 3)
-          .attr('fill', lane.colorDim)
-          .attr('font-size', 9)
-          .attr('font-family', 'JetBrains Mono, monospace')
-          .text(short);
-      }
     }
 
     const linkG = root.append('g').attr('class', 'lane-links');
@@ -2327,32 +2433,41 @@ git reset --hard ${hash}`;
     }
   }
 
-  function updatePluginBar(files) {
+  function updatePluginBar(laneCount) {
     const el = document.getElementById('plugin-open-status');
     if (!el) return;
     if (state.pluginDemoAllFiles) {
-      el.textContent = '演示数据 · 全部文件泳道';
+      el.textContent = '演示数据';
       return;
     }
-    const n = files?.length ?? state.openEditorPaths?.length ?? 0;
-    if (n === 0) {
-      el.textContent = '在编辑器中打开文件以显示泳道';
+    if (!state.parsed) {
+      el.textContent = '读取 git log…';
+      return;
+    }
+    const ws = state.workspaceFiles?.length ?? 0;
+    if (laneCount > 0) {
+      const lanes = state.catalog?.lanes || [];
+      const dirs = lanes.filter((l) => l.type === 'folder' && (l.collapsed || l.isHeader)).length;
+      const files = lanes.filter((l) => l.type === 'file').length;
+      el.textContent = files > 0
+        ? `${files} 个文件 · ${dirs} 个目录`
+        : `${laneCount} 行`;
     } else {
-      el.textContent = `${n} 个已打开文件`;
+      el.textContent = ws > 0 ? '目录已同步，等待 git 记录' : '同步工作区目录…';
     }
   }
 
-  function showPluginAwaitingOpen() {
+  function showPluginEmptyGit() {
     if (els.graphEmpty) {
       els.graphEmpty.classList.remove('hidden');
       const title = els.graphEmpty.querySelector('.graph-empty__title');
       const desc = els.graphEmpty.querySelector('.graph-empty__desc');
-      if (title) title.textContent = '等待打开文件';
-      if (desc) desc.textContent = '在资源管理器或标签页中打开工作区内的文件，马鞭会为它们绘制 git 泳道';
+      if (title) title.textContent = '暂无泳道';
+      if (desc) desc.textContent = '请确认已有 commit，或执行「马鞭: 刷新 Git 记录」';
     }
     if (els.graphHint) els.graphHint.hidden = true;
     if (els.graphZoom) els.graphZoom.hidden = true;
-    updatePluginBar([]);
+    updatePluginBar(0);
   }
 
   async function syncVisibleLanes(gen, options = {}) {
@@ -2427,21 +2542,20 @@ git reset --hard ${hash}`;
       if (!renderIsAlive(gen)) return;
       state.catalog = catalog;
 
-      const laneFiles = getLaneSourceFiles(state.parsed);
-      updatePluginBar(laneFiles);
+      updatePluginBar(catalog.lanes.length);
 
       if (isPluginHost() && catalog.lanes.length === 0) {
         graphRenderCtx = null;
         state.catalog = null;
         if (els.graphSvg) els.graphSvg.innerHTML = '';
-        showPluginAwaitingOpen();
+        showPluginEmptyGit();
         return;
       }
 
       els.graphEmpty.classList.add('hidden');
       els.graphHint.hidden = false;
       if (els.graphZoom) els.graphZoom.hidden = false;
-      if (!isPluginHost()) prepareFileRailAllRows(catalog.lanes);
+      prepareFileRailAllRows(catalog.lanes);
       prepareGraphShell(catalog);
       finalizeGraphView(catalog);
 
@@ -2863,6 +2977,7 @@ git reset --hard ${hash}`;
 
   function loadAndRender(text) {
     try {
+      const savedExpanded = isPluginHost() ? new Set(state.expandedPaths) : null;
       state.rawLogText = text;
       state.commitLoadLimit = CONFIG.COMMIT_PAGE_SIZE;
       state.totalCommitsInLog = 0;
@@ -2879,7 +2994,17 @@ git reset --hard ${hash}`;
       state.pulseNodeId = null;
       state.graphZoom = 1;
       if (els.zoomLabel) els.zoomLabel.textContent = '100%';
+      if (isPluginHost()) {
+        if (savedExpanded?.size) {
+          savedExpanded.forEach((p) => state.expandedPaths.add(p));
+        } else {
+          seedPluginExpandedPaths(getLaneSourceFiles(parsed));
+        }
+      }
       state.animateNext = true;
+      graphRenderCtx = null;
+      state.catalog = null;
+      state.laneSliceCache = null;
       renderFromState({ assignDefaultPulse: true });
     } catch (e) {
       showError(e.message || String(e));
@@ -3002,8 +3127,6 @@ git reset --hard ${hash}`;
   syncLaneLayoutButton();
   els.btnLaneLayout?.addEventListener('click', toggleLaneLayout);
 
-  if (isPluginHost()) showPluginAwaitingOpen();
-
   els.fileRail?.addEventListener('scroll', () => {
     if (scrollSync) return;
     state.scrollTop = els.fileRail.scrollTop;
@@ -3098,13 +3221,14 @@ git reset --hard ${hash}`;
         loadAndRender(DEMO_GIT_LOG);
       }
     },
-    setOpenFiles(paths) {
+    setWorkspaceFiles(paths) {
       if (!isPluginHost()) return;
       state.pluginDemoAllFiles = false;
-      state.openEditorPaths = Array.isArray(paths) ? paths : [];
-      updatePluginBar(state.openEditorPaths);
+      state.workspaceFiles = Array.isArray(paths) ? paths : [];
+      if (state.parsed && state.expandedPaths.size === 0) {
+        seedPluginExpandedPaths(getLaneSourceFiles(state.parsed));
+      }
       if (state.parsed) scheduleRenderFromState();
-      else showPluginAwaitingOpen();
     },
     getModalNode: () => state.modalNode,
   };

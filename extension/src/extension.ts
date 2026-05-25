@@ -1,45 +1,68 @@
 import * as vscode from 'vscode';
-import { HorsewhipSidebarProvider } from './horsewhipSidebar';
+import { HorsewhipLauncherProvider } from './horsewhipLauncher';
+import { HorsewhipPanel } from './horsewhipPanel';
 import { ensureWorkspaceReady } from './workspaceGate';
 
-let sidebarProvider: HorsewhipSidebarProvider | undefined;
-
 export function activate(context: vscode.ExtensionContext): void {
-  const provider = new HorsewhipSidebarProvider(context.extensionUri);
-  sidebarProvider = provider;
+  const launcher = new HorsewhipLauncherProvider(context.extensionUri);
 
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider(HorsewhipSidebarProvider.viewId, provider, {
-      webviewOptions: { retainContextWhenHidden: true },
+    vscode.commands.registerCommand('horsewhip.open', async () => {
+      await HorsewhipPanel.open(context.extensionUri);
     }),
 
-    vscode.commands.registerCommand('horsewhip.open', () => focusHorsewhip()),
-
-    vscode.commands.registerCommand('horsewhip.showTimeline', () => focusHorsewhip()),
+    vscode.commands.registerCommand('horsewhip.showTimeline', async () => {
+      await HorsewhipPanel.open(context.extensionUri);
+    }),
 
     vscode.commands.registerCommand('horsewhip.refresh', async () => {
-      await focusHorsewhip();
+      const panel = await openHorsewhip(context.extensionUri);
       const root = await ensureWorkspaceReady();
       if (!root) return;
-      await provider.refresh();
-      await provider.loadFromGit();
+      await panel.refresh();
+      await panel.loadFromGit();
     }),
 
     vscode.commands.registerCommand('horsewhip.loadDemo', async () => {
-      await focusHorsewhip();
-      provider.loadDemo();
+      const panel = await openHorsewhip(context.extensionUri);
+      panel.loadDemo();
     }),
 
-    vscode.workspace.onDidChangeWorkspaceFolders(() => provider.refresh()),
+    vscode.commands.registerCommand('horsewhip.publishGithub', async () => {
+      const panel = await openHorsewhip(context.extensionUri);
+      const root = await ensureWorkspaceReady();
+      if (!root) return;
+      await panel.openRemoteWizard();
+    }),
 
-    vscode.workspace.onDidGrantWorkspaceTrust(() => provider.refresh()),
+    vscode.commands.registerCommand('horsewhip.commit', async () => {
+      const panel = await openHorsewhip(context.extensionUri);
+      const root = await ensureWorkspaceReady();
+      if (!root) return;
+      await panel.openCommitDialog();
+    }),
+
+    vscode.workspace.onDidChangeWorkspaceFolders(async () => {
+      await HorsewhipPanel.get()?.refresh();
+    }),
+
+    vscode.workspace.onDidGrantWorkspaceTrust(async () => {
+      await HorsewhipPanel.get()?.refresh();
+    }),
   );
+
+  const treeView = vscode.window.createTreeView(HorsewhipLauncherProvider.viewId, {
+    treeDataProvider: launcher,
+    showCollapseAll: false,
+  });
+  launcher.bindTreeView(treeView);
+  context.subscriptions.push(treeView);
 }
 
 export function deactivate(): void {
-  sidebarProvider?.dispose();
+  HorsewhipPanel.get()?.dispose();
 }
 
-async function focusHorsewhip(): Promise<void> {
-  await vscode.commands.executeCommand('workbench.view.extension.horsewhip');
+async function openHorsewhip(extensionUri: vscode.Uri): Promise<HorsewhipPanel> {
+  return HorsewhipPanel.open(extensionUri);
 }

@@ -1,8 +1,8 @@
 {
   "name": "horsewhip",
   "displayName": "马鞭 · Horsewhip",
-  "description": "Git file timeline in the sidebar · swimlanes follow open editor tabs · workspace git only",
-  "version": "0.3.0",
+  "description": "Git file timeline · GitHub SSH publish · workspace git only",
+  "version": "0.4.9",
   "publisher": "horsewhip",
   "license": "AGPL-3.0-or-later",
   "engines": {
@@ -29,13 +29,18 @@
     "views": {
       "horsewhip": [
         {
-          "type": "webview",
           "id": "horsewhip.timelineView",
           "name": "Horsewhip",
           "icon": "media/horsewhip.svg"
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "horsewhip.timelineView",
+        "contents": "Git 文件泳道时间线，全屏工作区打开。\n[打开马鞭工作区](command:horsewhip.open)"
+      }
+    ],
     "commands": [
       {
         "command": "horsewhip.open",
@@ -56,6 +61,16 @@
         "command": "horsewhip.loadDemo",
         "title": "马鞭: 加载演示数据",
         "icon": "$(beaker)"
+      },
+      {
+        "command": "horsewhip.publishGithub",
+        "title": "马鞭: 发布到 GitHub (SSH)",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "horsewhip.commit",
+        "title": "马鞭: 提交更改",
+        "icon": "$(git-commit)"
       }
     ],
     "menus": {
@@ -68,6 +83,12 @@
         },
         {
           "command": "horsewhip.loadDemo"
+        },
+        {
+          "command": "horsewhip.publishGithub"
+        },
+        {
+          "command": "horsewhip.commit"
         }
       ]
     }

@@ -8,8 +8,8 @@ function csp(webview: vscode.Webview): string {
   return [
     "default-src 'none'",
     `font-src ${webview.cspSource} https://fonts.gstatic.com`,
-    `style-src ${webview.cspSource} 'unsafe-inline' https://fonts.googleapis.com`,
-    `script-src ${webview.cspSource} https://d3js.org 'unsafe-inline'`,
+    `style-src ${webview.cspSource} 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net`,
+    `script-src ${webview.cspSource} https://d3js.org https://cdn.jsdelivr.net 'unsafe-inline'`,
   ].join('; ');
 }
 
@@ -79,13 +79,103 @@ export function buildTimelineHtml(
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
   <link rel="stylesheet" href="${u('style.css')}">
   <style>
     body.hw-plugin .header, body.hw-plugin .paste-drop { display: none !important; }
-    body.hw-plugin .file-rail { display: none !important; }
-    body.hw-plugin .stage { top: 0; height: 100vh; }
-    body.hw-plugin .graph-viewport { flex: 1; min-width: 0; }
-    body.hw-plugin .lane-label-plugin { pointer-events: none; user-select: none; }
+    html, body.hw-plugin {
+      height: 100%; margin: 0; overflow: hidden;
+      display: flex; flex-direction: column;
+    }
+    body.hw-plugin .plugin-bar { flex: 0 0 auto; }
+    .hw-workspace {
+      flex: 1 1 auto; min-height: 0;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    body.hw-plugin .stage {
+      flex: 1 1 auto; min-height: 100px;
+      height: auto !important; top: auto;
+      overflow: hidden;
+      display: flex;
+      flex-direction: row;
+    }
+    body.hw-plugin .file-rail {
+      width: var(--file-rail-w, 200px);
+      flex: 0 0 var(--file-rail-w, 200px);
+      border-right: 1px solid rgba(255,255,255,.1);
+    }
+    body.hw-plugin .graph-viewport {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .hw-stage-head {
+      flex: 0 0 28px;
+      display: flex;
+      align-items: stretch;
+      border-bottom: 1px solid rgba(255,255,255,.1);
+      background: #0a0b0e;
+      font: 600 11px/1 Inter, sans-serif;
+      color: #9aa3b2;
+      user-select: none;
+    }
+    .hw-stage-head__files {
+      flex: 0 0 var(--file-rail-w, 200px);
+      display: flex; align-items: center;
+      padding: 0 12px;
+      border-right: 1px solid rgba(255,255,255,.1);
+      color: #e8eaed;
+    }
+    .hw-stage-head__lanes {
+      flex: 1 1 auto;
+      display: flex; align-items: center;
+      padding: 0 12px;
+      color: #e8eaed;
+    }
+    .hw-stage-head__hint {
+      margin-left: auto;
+      font-weight: 400;
+      font-size: 10px;
+      color: #6b7280;
+    }
+    body.hw-plugin .file-rail__item--folder { cursor: pointer; }
+    body.hw-plugin .file-rail__item--folder:hover { background: rgba(255,255,255,.06); }
+    .hw-terminal {
+      flex: 0 0 min(38vh, 280px);
+      display: flex; flex-direction: column;
+      border-top: 1px solid rgba(255,255,255,.1);
+      background: #07080a;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .hw-terminal[hidden] { display: none !important; }
+    .hw-terminal__body {
+      flex: 1 1 auto; min-height: 0;
+      padding: 4px 8px 6px;
+      overflow: hidden;
+    }
+    .hw-terminal__body .xterm { height: 100%; }
+    .hw-terminal__body .xterm-viewport { overflow-y: auto !important; }
+    .hw-dock {
+      flex: 0 0 32px;
+      display: flex; align-items: center;
+      padding: 0 10px;
+      border-top: 1px solid rgba(255,255,255,.08);
+      background: #0a0b0e;
+    }
+    .hw-dock__btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 5px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: transparent; color: #c4cad6;
+      font: 500 11px Inter, sans-serif; cursor: pointer;
+    }
+    .hw-dock__btn:hover { background: rgba(255,255,255,.06); color: #fff; }
+    .hw-dock__btn--active {
+      background: rgba(109,124,232,.22);
+      border-color: #6d7ce8; color: #e8eaed;
+    }
+    .hw-dock__btn-icon { font-family: 'JetBrains Mono', monospace; font-size: 11px; opacity: .85; }
     .plugin-bar {
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
       padding: 6px 12px; border-bottom: 1px solid rgba(255,255,255,.08);
@@ -94,6 +184,89 @@ export function buildTimelineHtml(
     .plugin-bar strong { color: #e8eaed; font-weight: 600; }
     .plugin-bar code { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6d7ce8; }
     .modal__btn-run { margin-left: 8px; }
+    .commit-prompt {
+      position: fixed; inset: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(7, 8, 10, 0.82); padding: 16px; box-sizing: border-box;
+    }
+    .commit-prompt[hidden] { display: none !important; }
+    .commit-prompt__card {
+      width: min(360px, 100%); background: #12141a; border: 1px solid rgba(255,255,255,.1);
+      border-radius: 10px; padding: 20px; box-shadow: 0 12px 40px rgba(0,0,0,.45);
+    }
+    .commit-prompt__title { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: #f97316; }
+    .commit-prompt__desc { margin: 0 0 14px; font-size: 13px; line-height: 1.5; color: #9aa3b2; }
+    .commit-prompt__desc code { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #c4cad6; }
+    .commit-prompt__label {
+      display: block; margin: 0 0 4px; font-size: 11px; font-weight: 500; color: #9aa3b2;
+    }
+    .commit-prompt__field { margin-bottom: 10px; }
+    .commit-prompt__hint { margin: -4px 0 10px; font-size: 11px; color: #6b7280; }
+    .commit-prompt__input {
+      width: 100%; box-sizing: border-box;
+      padding: 10px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,.12);
+      background: #07080a; color: #e8eaed; font: 400 13px/1.4 Inter, sans-serif;
+    }
+    .commit-prompt__input:focus { outline: 1px solid #6d7ce8; border-color: #6d7ce8; }
+    .commit-prompt__btn {
+      width: 100%; padding: 10px 16px; border: none; border-radius: 6px;
+      background: #6d7ce8; color: #fff; font: 600 13px Inter, sans-serif; cursor: pointer;
+    }
+    .commit-prompt__btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .commit-prompt__btn:not(:disabled):hover { filter: brightness(1.08); }
+    .commit-prompt__error { margin: 0 0 10px; font-size: 12px; color: #f87171; min-height: 1.2em; }
+    .plugin-bar__btn {
+      margin-left: auto; padding: 4px 10px; border-radius: 5px; border: 1px solid rgba(255,255,255,.14);
+      background: transparent; color: #c4cad6; font: 500 11px Inter, sans-serif; cursor: pointer;
+    }
+    .plugin-bar__btn:hover { background: rgba(255,255,255,.06); color: #fff; }
+    .plugin-bar__git {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+      font-size: 11px; color: #9aa3b2;
+    }
+    .plugin-bar__git code { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #6d7ce8; }
+    .plugin-bar__git .git-ok { color: #4ade80; }
+    .plugin-bar__git .git-warn { color: #fbbf24; }
+    .plugin-bar__actions { display: flex; gap: 6px; margin-left: auto; flex-shrink: 0; }
+    .plugin-bar__actions .plugin-bar__btn { margin-left: 0; }
+    .remote-wizard {
+      position: fixed; inset: 0; z-index: 110;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(7, 8, 10, 0.88); padding: 16px; box-sizing: border-box;
+    }
+    .remote-wizard[hidden] { display: none !important; }
+    .remote-wizard__card {
+      width: min(420px, 100%); max-height: 90vh; overflow-y: auto;
+      background: #12141a; border: 1px solid rgba(255,255,255,.1);
+      border-radius: 10px; padding: 20px; box-shadow: 0 12px 40px rgba(0,0,0,.45);
+    }
+    .remote-wizard__title { margin: 0 0 8px; font-size: 16px; font-weight: 600; color: #f97316; }
+    .remote-wizard__desc { margin: 0 0 12px; font-size: 13px; line-height: 1.55; color: #9aa3b2; }
+    .remote-wizard__desc code, .remote-wizard__steps code { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #c4cad6; }
+    .remote-wizard__steps { margin: 0 0 12px; padding-left: 18px; font-size: 12px; line-height: 1.6; color: #9aa3b2; }
+    .remote-wizard__status { margin: 0 0 10px; font-size: 12px; color: #6d7ce8; }
+    .remote-wizard__error { margin: 0 0 10px; font-size: 12px; color: #f87171; min-height: 1.2em; }
+    .remote-wizard__pubkey {
+      width: 100%; box-sizing: border-box; min-height: 72px; margin-bottom: 8px;
+      padding: 8px 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,.12);
+      background: #07080a; color: #c4cad6; font: 400 11px/1.45 'JetBrains Mono', monospace;
+      resize: vertical;
+    }
+    .remote-wizard__field { margin-bottom: 10px; }
+    .remote-wizard__label { display: block; margin-bottom: 4px; font-size: 11px; color: #9aa3b2; }
+    .remote-wizard__input {
+      width: 100%; box-sizing: border-box; padding: 9px 11px; border-radius: 6px;
+      border: 1px solid rgba(255,255,255,.12); background: #07080a; color: #e8eaed;
+      font: 400 13px/1.4 Inter, sans-serif;
+    }
+    .remote-wizard__row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .remote-wizard__btn {
+      flex: 1; min-width: 120px; padding: 9px 14px; border-radius: 6px; border: none;
+      background: #6d7ce8; color: #fff; font: 600 12px Inter, sans-serif; cursor: pointer;
+    }
+    .remote-wizard__btn--ghost { background: transparent; border: 1px solid rgba(255,255,255,.14); color: #c4cad6; }
+    .remote-wizard__btn:disabled { opacity: 0.55; cursor: not-allowed; }
+    .remote-wizard__panel[hidden] { display: none !important; }
   </style>
 </head>
 <body class="hw-plugin">
@@ -101,10 +274,31 @@ export function buildTimelineHtml(
     <strong>马鞭</strong>
     <span>工作区 <code>${workspaceLabel}</code></span>
     <span class="plugin-bar__sep">·</span>
-    <span id="plugin-open-status">在编辑器中打开文件以显示泳道</span>
+    <span id="plugin-open-status">同步资源管理器目录层级…</span>
+    <span class="plugin-bar__git" id="plugin-git-status">
+      <span>分支 <code id="plugin-branch">—</code></span>
+      <span class="plugin-bar__sep">·</span>
+      <span id="plugin-remote-label" class="git-warn">未连接 remote</span>
+    </span>
+    <div class="plugin-bar__actions">
+      <button type="button" class="plugin-bar__btn" id="btn-commit-open" hidden title="提交当前更改">提交</button>
+      <button type="button" class="plugin-bar__btn" id="btn-open-github" hidden title="在浏览器打开 GitHub 仓库">GitHub</button>
+      <button type="button" class="plugin-bar__btn" id="btn-remote-setup">发布</button>
+    </div>
+  </div>
+  <div class="hw-workspace" id="hw-workspace">
+  <div class="hw-stage-head" aria-hidden="false">
+    <div class="hw-stage-head__files">文件栏</div>
+    <div class="hw-stage-head__lanes">
+      泳道
+      <span class="hw-stage-head__hint">一行目录 · 一行泳道 · 同步滚动</span>
+    </div>
   </div>
   <main class="stage" id="stage">
-    <section class="graph-viewport" id="graph-viewport" tabindex="0">
+    <aside class="file-rail" id="file-rail" aria-label="马鞭文件栏">
+      <div class="file-rail__inner" id="file-rail-inner"></div>
+    </aside>
+    <section class="graph-viewport" id="graph-viewport" tabindex="0" aria-label="泳道时间线">
       <div class="graph-scroll" id="graph-scroll">
         <svg id="graph-svg" class="graph-svg" role="img" aria-label="Version timeline"></svg>
       </div>
@@ -124,6 +318,15 @@ export function buildTimelineHtml(
       </div>
     </section>
   </main>
+  <div class="hw-terminal" id="hw-terminal" hidden>
+    <div id="hw-terminal-host" class="hw-terminal__body"></div>
+  </div>
+  <footer class="hw-dock">
+    <button type="button" class="hw-dock__btn" id="btn-toggle-terminal" title="打开/关闭终端" aria-pressed="false">
+      <span class="hw-dock__btn-icon">&gt;_</span> 终端
+    </button>
+  </footer>
+  </div>
   <div class="toast toast--error" id="parse-error" hidden></div>
   <div class="toast toast--warn toast--pager" id="large-data-warn" hidden>
     <span id="large-warn-text"></span>
@@ -167,11 +370,105 @@ export function buildTimelineHtml(
       </section>
     </div>
   </div>
+  <div class="commit-prompt" id="commit-prompt" hidden>
+    <div class="commit-prompt__card">
+      <h2 class="commit-prompt__title" id="commit-title">创建首次 commit</h2>
+      <p class="commit-prompt__desc" id="commit-desc">仓库还没有 commit，马鞭无法绘制时间线。填写作者信息并提交（<code>git add -A</code>，作者信息仅写入<strong>本仓库</strong>）。</p>
+      <p class="commit-prompt__error" id="commit-error"></p>
+      <div class="commit-prompt__field">
+        <label class="commit-prompt__label" for="commit-author-name">Git 用户名</label>
+        <input type="text" class="commit-prompt__input" id="commit-author-name" placeholder="例如：Su" autocomplete="name">
+      </div>
+      <div class="commit-prompt__field">
+        <label class="commit-prompt__label" for="commit-author-email">Git 邮箱</label>
+        <input type="email" class="commit-prompt__input" id="commit-author-email" placeholder="例如：you@example.com" autocomplete="email">
+      </div>
+      <p class="commit-prompt__hint">仅保存在当前项目的 <code>.git/config</code>，不修改全局设置</p>
+      <div class="commit-prompt__field">
+        <label class="commit-prompt__label" for="commit-message">Commit 说明</label>
+        <input type="text" class="commit-prompt__input" id="commit-message" placeholder="例如：initial commit" autocomplete="off">
+      </div>
+      <button type="button" class="commit-prompt__btn" id="btn-commit">提交</button>
+    </div>
+  </div>
+  <div class="remote-wizard" id="remote-wizard" hidden>
+    <div class="remote-wizard__card">
+      <div class="remote-wizard__panel" id="remote-panel-ask">
+        <h2 class="remote-wizard__title">发布到 GitHub</h2>
+        <p class="remote-wizard__desc">是否使用 <strong>SSH</strong> 连接 GitHub？（推荐，地址形如 <code>git@github.com:用户/仓库.git</code>）</p>
+        <p class="remote-wizard__error" id="remote-error"></p>
+        <div class="remote-wizard__row">
+          <button type="button" class="remote-wizard__btn" id="remote-btn-use-ssh">使用 SSH</button>
+          <button type="button" class="remote-wizard__btn remote-wizard__btn--ghost" id="remote-btn-skip">暂不发布</button>
+        </div>
+      </div>
+      <div class="remote-wizard__panel" id="remote-panel-ssh" hidden>
+        <h2 class="remote-wizard__title">配置 SSH</h2>
+        <p class="remote-wizard__status" id="remote-ssh-status">检测中…</p>
+        <ol class="remote-wizard__steps">
+          <li>点击下方「生成 / 复制公钥」</li>
+          <li>打开 <strong>GitHub → Settings → SSH and GPG keys → New SSH key</strong></li>
+          <li>Title 随意，Key 里 <strong>粘贴</strong> 复制的公钥 → Add SSH key</li>
+          <li>回到马鞭，点「检测 SSH」</li>
+        </ol>
+        <textarea class="remote-wizard__pubkey" id="remote-pubkey" readonly placeholder="公钥将显示在这里…"></textarea>
+        <div class="remote-wizard__row">
+          <button type="button" class="remote-wizard__btn" id="remote-btn-gen-key">生成 / 复制公钥</button>
+          <button type="button" class="remote-wizard__btn remote-wizard__btn--ghost" id="remote-btn-test-ssh">检测 SSH</button>
+        </div>
+        <div class="remote-wizard__row">
+          <button type="button" class="remote-wizard__btn" id="remote-btn-ssh-next" disabled>SSH 已就绪，下一步</button>
+        </div>
+      </div>
+      <div class="remote-wizard__panel" id="remote-panel-repo" hidden>
+        <h2 class="remote-wizard__title">远程仓库</h2>
+        <p class="remote-wizard__desc">已有仓库请填 SSH 地址；没有则马鞭按<strong>项目文件夹名</strong>在 GitHub 新建<strong>公开</strong>仓库。</p>
+        <div class="remote-wizard__field">
+          <label class="remote-wizard__label"><input type="radio" name="remote-mode" id="remote-mode-existing" value="existing" checked> 已有仓库地址</label>
+        </div>
+        <input type="text" class="remote-wizard__input" id="remote-repo-url" placeholder="git@github.com:用户名/仓库.git">
+        <div class="remote-wizard__field" style="margin-top:12px">
+          <label class="remote-wizard__label"><input type="radio" name="remote-mode" id="remote-mode-create" value="create"> 新建开源仓库</label>
+        </div>
+        <div id="remote-create-fields">
+          <div class="remote-wizard__field">
+            <label class="remote-wizard__label" for="remote-github-user">GitHub 用户名</label>
+            <input type="text" class="remote-wizard__input" id="remote-github-user" placeholder="例如：waitamomentC">
+          </div>
+          <div class="remote-wizard__field">
+            <label class="remote-wizard__label" for="remote-repo-name">仓库名（默认项目名）</label>
+            <input type="text" class="remote-wizard__input" id="remote-repo-name" placeholder="TEXT">
+          </div>
+          <div class="remote-wizard__field">
+            <label class="remote-wizard__label" for="remote-github-token">GitHub Token（未安装 gh 时需要）</label>
+            <input type="password" class="remote-wizard__input" id="remote-github-token" placeholder="ghp_… 或 github_pat_…" autocomplete="off">
+          </div>
+          <p class="remote-wizard__desc" style="margin-top:0;font-size:11px">已安装并登录 <code>gh</code> 时可留空 Token。</p>
+        </div>
+        <p class="remote-wizard__error" id="remote-repo-error"></p>
+        <div class="remote-wizard__row">
+          <button type="button" class="remote-wizard__btn" id="remote-btn-publish">添加 remote 并 push</button>
+        </div>
+      </div>
+      <div class="remote-wizard__panel" id="remote-panel-done" hidden>
+        <h2 class="remote-wizard__title">发布成功</h2>
+        <p class="remote-wizard__desc" id="remote-done-desc"></p>
+        <div class="remote-wizard__row">
+          <button type="button" class="remote-wizard__btn" id="remote-btn-open-github">在浏览器打开 GitHub</button>
+          <button type="button" class="remote-wizard__btn remote-wizard__btn--ghost" id="remote-btn-done">完成</button>
+        </div>
+      </div>
+    </div>
+  </div>
   <div class="tooltip" id="tooltip" hidden></div>
   <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
   <script src="${u('demo-data.js')}"></script>
   <script src="${u('script.js')}"></script>
   <script src="${u('panel-bridge.js')}"></script>
+  <script src="${u('remote-wizard.js')}"></script>
+  <script src="${u('terminal-bridge.js')}"></script>
 </body>
 </html>`;
 }
