@@ -1,0 +1,48 @@
+# OS
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editor / IDE
+.idea/
+*.swp
+*.swo
+*~
+.vscode-test/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# VS Code extension (build & package)
+extension/node_modules/
+extension/out/
+*.vsix
+
+# Secrets & local env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs & caches
+*.log
+logs/
+.cache/
+.tmp/
+temp/
+tmp/
+
+# Local reference / scratch (not part of the product)
+.ref/
+
+# Optional: keep personal notes out of the repo
+# work-log.md

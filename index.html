@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>马鞭 · Horsewhip</title>
+  <meta name="description" content="Git version timeline · AI file boundary constraints">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="header">
+    <div class="header__brand">
+      <svg class="header__logo" viewBox="0 0 32 32" aria-hidden="true">
+        <defs>
+          <linearGradient id="hw-logo-whip" x1="4" y1="26" x2="28" y2="6" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#c2410c"/>
+            <stop offset="38%" stop-color="#f97316"/>
+            <stop offset="72%" stop-color="#fbbf24"/>
+            <stop offset="100%" stop-color="#8b97ff"/>
+          </linearGradient>
+          <radialGradient id="hw-logo-star" cx="32%" cy="28%" r="72%">
+            <stop offset="0%" stop-color="#fef9c3"/>
+            <stop offset="50%" stop-color="#fbbf24"/>
+            <stop offset="100%" stop-color="#ea580c"/>
+          </radialGradient>
+          <filter id="hw-logo-glow" x="-80%" y="-80%" width="260%" height="260%">
+            <feGaussianBlur stdDeviation="1.1" result="b"/>
+            <feMerge>
+              <feMergeNode in="b"/>
+              <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+          </filter>
+        </defs>
+        <path class="logo-whip-glow" d="M4 24 Q16 4 28 8" fill="none" stroke="#f97316" stroke-width="4.5" stroke-linecap="round" opacity="0.28"/>
+        <path class="logo-whip" d="M4 24 Q16 4 28 8" fill="none" stroke="url(#hw-logo-whip)" stroke-width="2.6" stroke-linecap="round"/>
+        <circle class="logo-star-halo" cx="28" cy="8" r="5.5" fill="#f59e0b" opacity="0.22"/>
+        <circle class="logo-star" cx="28" cy="8" r="3.2" fill="url(#hw-logo-star)" filter="url(#hw-logo-glow)"/>
+        <circle class="logo-spark logo-spark--a" cx="17" cy="11" r="1.1" fill="#fde68a"/>
+        <circle class="logo-spark logo-spark--b" cx="11" cy="17" r="0.75" fill="#fb923c" opacity="0.85"/>
+        <circle class="logo-spark logo-spark--c" cx="22" cy="14" r="0.55" fill="#a5b4fc" opacity="0.75"/>
+      </svg>
+      <h1 class="header__title">马鞭 <span class="header__mono">horsewhip</span></h1>
+    </div>
+
+    <div class="header__tools">
+      <button type="button" class="btn" id="btn-demo">demo</button>
+      <button type="button" class="btn" id="btn-mega-demo" title="~1500 files · viewport stress test">mega</button>
+      <button type="button" class="btn btn--solid" id="btn-generate">generate</button>
+      <button type="button" class="btn" id="btn-clear">clear</button>
+      <button type="button" class="btn" id="btn-paste-toggle">paste</button>
+      <input type="search" id="file-filter" class="header__filter" placeholder="filter…">
+      <button type="button" class="btn" id="btn-lane-layout" aria-pressed="false" title="切换文件视图">目录</button>
+      <code class="header__cmd" id="cmd-chip" title="copy command">git log --all …</code>
+      <span class="header__stats" id="stats" hidden>
+        <span id="stat-commits"></span>
+        <span id="stat-files"></span>
+      </span>
+    </div>
+
+    <div class="header__actions">
+      <a href="#" class="btn btn--text" id="star-link">star</a>
+    </div>
+  </header>
+
+  <div class="paste-drop" id="paste-drop" hidden>
+    <textarea id="log-input" class="paste-drop__textarea" placeholder="git log --name-only --pretty=format:&quot;%H|%an|%ad&quot;" spellcheck="false"></textarea>
+  </div>
+
+  <main class="stage" id="stage">
+    <aside class="file-rail" id="file-rail" aria-label="Files">
+      <div class="file-rail__inner" id="file-rail-inner"></div>
+    </aside>
+    <section class="graph-viewport" id="graph-viewport" tabindex="0">
+      <div class="graph-scroll" id="graph-scroll">
+        <svg id="graph-svg" class="graph-svg" role="img" aria-label="Version timeline"></svg>
+      </div>
+      <div class="graph-empty" id="graph-empty">
+        <p class="graph-empty__title">马鞭 timeline</p>
+        <p class="graph-empty__desc">demo 或 paste → generate</p>
+      </div>
+      <div class="graph-hint" id="graph-hint" hidden>
+        <span class="graph-hint__item">首屏 HEAD</span>
+        <span class="graph-hint__sep">·</span>
+        <span class="graph-hint__item">悬停圆点看标签</span>
+        <span class="graph-hint__sep">·</span>
+        <span class="graph-hint__item">滚轮左右</span>
+        <span class="graph-hint__sep">·</span>
+        <span class="graph-hint__item">⌘滚轮缩放</span>
+      </div>
+      <div class="graph-zoom" id="graph-zoom" hidden>
+        <button type="button" class="btn btn--icon" id="btn-zoom-out" title="缩小" aria-label="缩小">−</button>
+        <span class="graph-zoom__label" id="zoom-label">100%</span>
+        <button type="button" class="btn btn--icon" id="btn-zoom-in" title="放大" aria-label="放大">+</button>
+      </div>
+    </section>
+  </main>
+
+  <div class="toast toast--error" id="parse-error" hidden></div>
+  <div class="toast toast--warn toast--pager" id="large-data-warn" hidden>
+    <span id="large-warn-text"></span>
+    <button type="button" class="btn btn--compact" id="btn-load-more-commits" hidden>+100</button>
+  </div>
+
+  <aside class="constraint-panel" id="link-panel" hidden>
+    <p class="constraint-panel__label">constraint</p>
+    <pre class="constraint-panel__text" id="link-constraint-text"></pre>
+    <button type="button" class="btn btn--solid btn--block" id="btn-copy-link">copy</button>
+  </aside>
+
+  <div class="modal-backdrop" id="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-labelledby="modal-title" aria-modal="true">
+      <header class="modal__header">
+        <div>
+          <h2 class="modal__title" id="modal-title"></h2>
+          <p class="modal__meta" id="modal-meta"></p>
+          <p class="modal__file" id="modal-file"></p>
+        </div>
+        <button type="button" class="btn btn--icon modal__close" id="modal-close" aria-label="Close">×</button>
+      </header>
+      <section class="modal__section">
+        <h3 class="modal__section-title">constraint</h3>
+        <pre class="modal__code" id="modal-constraint"></pre>
+        <button type="button" class="btn btn--solid" id="btn-copy-constraint">copy</button>
+      </section>
+      <section class="modal__section">
+        <h3 class="modal__section-title">rollback</h3>
+        <p class="modal__label">① file only</p>
+        <pre class="modal__code" id="modal-cmd-file"></pre>
+        <button type="button" class="btn" id="btn-copy-checkout">copy checkout</button>
+        <p class="modal__label modal__label--danger">② reset entire repo</p>
+        <button type="button" class="btn" id="btn-toggle-reset">confirm</button>
+        <div class="rollback-danger" id="rollback-danger" hidden>
+          <label for="reset-confirm">type RESET</label>
+          <input type="text" id="reset-confirm" class="input-inline" placeholder="RESET" autocomplete="off">
+          <pre class="modal__code" id="modal-cmd-reset"></pre>
+          <button type="button" class="btn btn--danger" id="btn-copy-reset" disabled>copy reset --hard</button>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="tooltip" id="tooltip" hidden></div>
+
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="demo-data.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>

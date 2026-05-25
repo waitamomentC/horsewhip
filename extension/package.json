@@ -1,0 +1,88 @@
+{
+  "name": "horsewhip",
+  "displayName": "马鞭 · Horsewhip",
+  "description": "Git file timeline in the sidebar · swimlanes follow open editor tabs · workspace git only",
+  "version": "0.3.0",
+  "publisher": "horsewhip",
+  "license": "AGPL-3.0-or-later",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "SCM Providers"
+  ],
+  "activationEvents": [
+    "onView:horsewhip.timelineView"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "horsewhip",
+          "title": "马鞭",
+          "icon": "media/horsewhip.svg"
+        }
+      ]
+    },
+    "views": {
+      "horsewhip": [
+        {
+          "type": "webview",
+          "id": "horsewhip.timelineView",
+          "name": "Horsewhip",
+          "icon": "media/horsewhip.svg"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "horsewhip.open",
+        "title": "马鞭: 打开时间线",
+        "icon": "$(symbol-event)"
+      },
+      {
+        "command": "horsewhip.showTimeline",
+        "title": "马鞭: 打开时间线",
+        "icon": "$(symbol-event)"
+      },
+      {
+        "command": "horsewhip.refresh",
+        "title": "马鞭: 刷新 Git 记录",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "horsewhip.loadDemo",
+        "title": "马鞭: 加载演示数据",
+        "icon": "$(beaker)"
+      }
+    ],
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "horsewhip.open"
+        },
+        {
+          "command": "horsewhip.refresh"
+        },
+        {
+          "command": "horsewhip.loadDemo"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "sync-assets": "node ./scripts/sync-web-assets.js",
+    "package": "npm run sync-assets && npm run compile && vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.22.0",
+    "typescript": "^5.4.0"
+  }
+}
