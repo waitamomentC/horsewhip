@@ -10,6 +10,8 @@ function csp(webview: vscode.Webview): string {
     `font-src ${webview.cspSource} https://fonts.gstatic.com`,
     `style-src ${webview.cspSource} 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net`,
     `script-src ${webview.cspSource} https://d3js.org https://cdn.jsdelivr.net 'unsafe-inline'`,
+    `connect-src ${webview.cspSource}`,
+    `media-src ${webview.cspSource}`,
   ].join('; ');
 }
 
@@ -21,8 +23,8 @@ export function buildGateHtml(
   const isNoGit = reason === 'no-git';
   const title = isNoGit ? '需要先建立 Git 仓库' : '需要先打开工作区';
   const body = isNoGit
-    ? `马鞭只读取<strong>当前工作区</strong>里的 Git 版本历史。${folderName ? `文件夹 <code>${folderName}</code> ` : ''}还没有 <code>.git</code>，请先在项目根目录执行：<br><br><code>git init</code>`
-    : '请通过菜单 <strong>文件 → 打开文件夹</strong> 选择一个项目目录，马鞭只会分析该工作区内的文件。';
+    ? `Horsewhip only reads Git history from your <strong>current workspace</strong>.${folderName ? ` Folder <code>${folderName}</code> ` : ' '}has no <code>.git</code> yet. Run in the project root:<br><br><code>git init</code>`
+    : 'Use <strong>File → Open Folder</strong> to pick a project directory. Horsewhip only analyzes files inside that workspace.';
   const action = isNoGit ? 'gateGitInit' : 'gateOpenFolder';
   const btnLabel = isNoGit ? '执行 git init' : '打开文件夹';
 
@@ -51,7 +53,7 @@ export function buildGateHtml(
 </head>
 <body>
   <div class="card">
-    <h1>马鞭 · Horsewhip</h1>
+    <h1>Horsewhip</h1>
     <p>${body}</p>
     <button type="button" id="gate-btn">${btnLabel}</button>
   </div>
@@ -76,6 +78,7 @@ export function buildTimelineHtml(
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="${csp(webview)}">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="horsewhip-whip-audio" content="${u('whip-crack.mp3')}">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -139,6 +142,7 @@ export function buildTimelineHtml(
       color: #6b7280;
     }
     body.hw-plugin .file-rail__item--folder { cursor: pointer; }
+    body.hw-plugin .file-rail__item--folder-header { cursor: default; }
     body.hw-plugin .file-rail__item--folder:hover { background: rgba(255,255,255,.06); }
     .hw-terminal {
       flex: 0 0 min(38vh, 280px);
@@ -229,6 +233,75 @@ export function buildTimelineHtml(
     .plugin-bar__git .git-warn { color: #fbbf24; }
     .plugin-bar__actions { display: flex; gap: 6px; margin-left: auto; flex-shrink: 0; }
     .plugin-bar__actions .plugin-bar__btn { margin-left: 0; }
+    .plugin-bar__btn--primary { background: #6d7ce8; border-color: transparent; color: #fff; }
+    .plugin-bar__btn--primary:hover { filter: brightness(1.08); color: #fff; }
+    body.hw-plugin .hw-boundary .plugin-bar__btn { margin-left: 0; }
+    .hw-whip-btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 2px 10px; min-width: 36px; line-height: 0;
+    }
+    .hw-whip-btn__svg, .hw-whip-float__svg {
+      overflow: visible;
+      filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.45));
+    }
+    .hw-whip-btn__svg { width: 22px; height: 18px; }
+    .hw-whip-icon__lash { transform-origin: -5.5px 3.45px; transform-box: fill-box; }
+    .hw-whip-icon__lash path[fill="#f97316"] { transition: fill 0.15s ease; }
+    .hw-whip-btn--crack .hw-whip-icon__lash {
+      animation: whip-crack 0.38s cubic-bezier(0.34, 1.4, 0.64, 1);
+    }
+    .hw-whip-btn--crack .hw-whip-icon__spark {
+      animation: whip-spark 0.38s ease-out;
+    }
+    .hw-whip-btn:hover .hw-whip-icon__lash path[fill="#f97316"] { fill: #fbbf24; }
+    .hw-whip-float {
+      position: fixed; right: 20px; bottom: 52px; left: auto; top: auto;
+      z-index: 10050; pointer-events: none;
+    }
+    .hw-whip-float:not([hidden]) { pointer-events: auto; }
+    .hw-whip-float__btn {
+      display: block; padding: 8px; margin: 0; border: none; background: transparent;
+      cursor: pointer; line-height: 0;
+    }
+    .hw-whip-float__svg {
+      width: 84px; height: 66px; display: block;
+      filter: drop-shadow(0 2px 8px rgba(0, 0, 0, 0.5));
+    }
+    .hw-whip-float--crack .hw-whip-icon__lash {
+      animation: whip-crack-float 0.52s cubic-bezier(0.22, 1.45, 0.36, 1);
+    }
+    .hw-whip-float--crack .hw-whip-icon__spark {
+      animation: whip-spark-float 0.52s ease-out;
+    }
+    .hw-whip-float__btn:hover .hw-whip-icon__lash path[fill="#f97316"] { fill: #fbbf24; }
+    .hw-whip-float__btn:hover .hw-whip-float__svg {
+      filter: drop-shadow(0 0 14px rgba(249, 115, 22, 0.7));
+    }
+    @keyframes whip-crack {
+      0% { transform: rotate(0deg); }
+      22% { transform: rotate(-42deg); }
+      48% { transform: rotate(18deg); }
+      72% { transform: rotate(-10deg); }
+      100% { transform: rotate(0deg); }
+    }
+    @keyframes whip-spark {
+      0%, 100% { opacity: 1; }
+      35% { opacity: 1; transform: scale(1.7); }
+      60% { opacity: 0.5; }
+    }
+    @keyframes whip-crack-float {
+      0% { transform: rotate(0deg); }
+      18% { transform: rotate(-56deg); }
+      42% { transform: rotate(26deg); }
+      65% { transform: rotate(-16deg); }
+      82% { transform: rotate(8deg); }
+      100% { transform: rotate(0deg); }
+    }
+    @keyframes whip-spark-float {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      28% { opacity: 1; transform: scale(2.4); }
+      55% { opacity: 0.55; transform: scale(1.5); }
+    }
     .remote-wizard {
       position: fixed; inset: 0; z-index: 110;
       display: flex; align-items: center; justify-content: center;
@@ -271,7 +344,7 @@ export function buildTimelineHtml(
 </head>
 <body class="hw-plugin">
   <div class="plugin-bar">
-    <strong>马鞭</strong>
+    <strong>Horsewhip</strong>
     <span>工作区 <code>${workspaceLabel}</code></span>
     <span class="plugin-bar__sep">·</span>
     <span id="plugin-open-status">同步资源管理器目录层级…</span>
@@ -286,16 +359,29 @@ export function buildTimelineHtml(
       <button type="button" class="plugin-bar__btn" id="btn-remote-setup">发布</button>
     </div>
   </div>
+  <div class="hw-boundary" id="hw-boundary" hidden>
+    <div class="hw-boundary__info">
+      <strong class="hw-boundary__title">本次边界</strong>
+      <span class="hw-boundary__count" id="hw-boundary-count">0 个文件</span>
+      <span class="hw-boundary__files" id="hw-boundary-files"></span>
+    </div>
+    <div class="hw-boundary__actions">
+      <button type="button" class="plugin-bar__btn" id="btn-boundary-clear">清空</button>
+      <button type="button" class="plugin-bar__btn hw-whip-btn" id="btn-boundary-copy" title="复制约束" aria-label="复制约束"></button>
+      <button type="button" class="plugin-bar__btn plugin-bar__btn--primary" id="btn-boundary-chat">插入 Chat</button>
+    </div>
+    <pre class="hw-boundary__preview" id="hw-boundary-preview" hidden></pre>
+  </div>
   <div class="hw-workspace" id="hw-workspace">
   <div class="hw-stage-head" aria-hidden="false">
     <div class="hw-stage-head__files">文件栏</div>
     <div class="hw-stage-head__lanes">
       泳道
-      <span class="hw-stage-head__hint">一行目录 · 一行泳道 · 同步滚动</span>
+      <span class="hw-stage-head__hint">点文件聚焦 · 折叠文件夹可选中边界 · ▸/▾ 展开收起 · 点节点切换选中 · 小马鞭复制</span>
     </div>
   </div>
   <main class="stage" id="stage">
-    <aside class="file-rail" id="file-rail" aria-label="马鞭文件栏">
+    <aside class="file-rail" id="file-rail" aria-label="Files">
       <div class="file-rail__inner" id="file-rail-inner"></div>
     </aside>
     <section class="graph-viewport" id="graph-viewport" tabindex="0" aria-label="泳道时间线">
@@ -312,6 +398,11 @@ export function buildTimelineHtml(
         <span class="graph-hint__item">双击 rollback</span>
       </div>
       <div class="graph-zoom" id="graph-zoom" hidden>
+        <button type="button" class="btn btn--icon hw-sound-btn" id="btn-whip-sound" title="关闭挥鞭音效" aria-pressed="false" aria-label="关闭挥鞭音效">
+          <span class="hw-sound__on" aria-hidden="true">🔊</span>
+          <span class="hw-sound__off" hidden aria-hidden="true">🔇</span>
+        </button>
+        <span class="graph-zoom__sep" aria-hidden="true"></span>
         <button type="button" class="btn btn--icon" id="btn-zoom-out" title="缩小">−</button>
         <span class="graph-zoom__label" id="zoom-label">100%</span>
         <button type="button" class="btn btn--icon" id="btn-zoom-in" title="放大">+</button>
@@ -373,7 +464,7 @@ export function buildTimelineHtml(
   <div class="commit-prompt" id="commit-prompt" hidden>
     <div class="commit-prompt__card">
       <h2 class="commit-prompt__title" id="commit-title">创建首次 commit</h2>
-      <p class="commit-prompt__desc" id="commit-desc">仓库还没有 commit，马鞭无法绘制时间线。填写作者信息并提交（<code>git add -A</code>，作者信息仅写入<strong>本仓库</strong>）。</p>
+      <p class="commit-prompt__desc" id="commit-desc">No commits yet — Horsewhip needs at least one commit to draw the timeline. Fill in author info and commit (<code>git add -A</code>; author info is saved to <strong>this repo only</strong>).</p>
       <p class="commit-prompt__error" id="commit-error"></p>
       <div class="commit-prompt__field">
         <label class="commit-prompt__label" for="commit-author-name">Git 用户名</label>
@@ -409,7 +500,7 @@ export function buildTimelineHtml(
           <li>点击下方「生成 / 复制公钥」</li>
           <li>打开 <strong>GitHub → Settings → SSH and GPG keys → New SSH key</strong></li>
           <li>Title 随意，Key 里 <strong>粘贴</strong> 复制的公钥 → Add SSH key</li>
-          <li>回到马鞭，点「检测 SSH」</li>
+          <li>Return to Horsewhip and click «Detect SSH»</li>
         </ol>
         <textarea class="remote-wizard__pubkey" id="remote-pubkey" readonly placeholder="公钥将显示在这里…"></textarea>
         <div class="remote-wizard__row">
@@ -422,7 +513,7 @@ export function buildTimelineHtml(
       </div>
       <div class="remote-wizard__panel" id="remote-panel-repo" hidden>
         <h2 class="remote-wizard__title">远程仓库</h2>
-        <p class="remote-wizard__desc">已有仓库请填 SSH 地址；没有则马鞭按<strong>项目文件夹名</strong>在 GitHub 新建<strong>公开</strong>仓库。</p>
+        <p class="remote-wizard__desc">Use an existing SSH remote URL, or let Horsewhip create a new <strong>public</strong> GitHub repo named after your <strong>project folder</strong>.</p>
         <div class="remote-wizard__field">
           <label class="remote-wizard__label"><input type="radio" name="remote-mode" id="remote-mode-existing" value="existing" checked> 已有仓库地址</label>
         </div>

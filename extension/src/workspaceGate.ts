@@ -44,7 +44,7 @@ export async function ensureWorkspaceReady(): Promise<string | undefined> {
 
   if (state.reason === 'no-folder') {
     const pick = await vscode.window.showWarningMessage(
-      '马鞭需要先在 VS Code 中打开一个文件夹作为工作区（文件 → 打开文件夹）。',
+      'Open a folder in VS Code first (File → Open Folder). Horsewhip needs a workspace folder.',
       { modal: true },
       '打开文件夹',
     );
@@ -57,7 +57,7 @@ export async function ensureWorkspaceReady(): Promise<string | undefined> {
   const root = getWorkspaceRoot();
   const folderHint = root ? `（${getWorkspaceFolderName(root)}）` : '';
   const pick = await vscode.window.showWarningMessage(
-    `当前工作区${folderHint} 还不是 Git 仓库。请先在项目根目录执行 git init，马鞭才能读取版本历史。`,
+    `This workspace${folderHint} is not a Git repository yet. Run git init in the project root so Horsewhip can read version history.`,
     { modal: true },
     '执行 git init',
     '打开终端',
@@ -68,7 +68,7 @@ export async function ensureWorkspaceReady(): Promise<string | undefined> {
       await gitInit(root);
       const again = await isGitRepository(root);
       if (again) {
-        vscode.window.showInformationMessage('Git 仓库已初始化，正在加载马鞭…');
+        vscode.window.showInformationMessage('Git repository initialized — loading Horsewhip…');
         return root;
       }
     } catch (err) {
@@ -79,7 +79,7 @@ export async function ensureWorkspaceReady(): Promise<string | undefined> {
   }
 
   if (pick === '打开终端' && root) {
-    const terminal = vscode.window.createTerminal({ cwd: root, name: '马鞭 · git init' });
+    const terminal = vscode.window.createTerminal({ cwd: root, name: 'Horsewhip · git init' });
     terminal.show();
     terminal.sendText('git init', true);
   }

@@ -13,6 +13,14 @@
       if (!vscode) return;
       vscode.postMessage({ type: 'revealFolder', folderPath: folderPath || '' });
     },
+    setBoundaryAllowlist(files) {
+      if (!vscode) return;
+      vscode.postMessage({ type: 'setBoundaryAllowlist', files: Array.isArray(files) ? files : [] });
+    },
+    insertBoundaryToChat(text) {
+      if (!vscode || !text) return;
+      vscode.postMessage({ type: 'insertBoundaryToChat', text });
+    },
   };
 
   function wireRollbackButtons() {
@@ -112,7 +120,7 @@
     if (descEl) {
       descEl.textContent = isQuick
         ? '将当前工作区所有改动 git add -A 并创建 commit。'
-        : '仓库还没有 commit，马鞭无法绘制时间线。填写作者信息并提交（git add -A，作者信息仅写入本仓库）。';
+        : 'No commits yet — Horsewhip needs at least one commit to draw the timeline. Fill in author info and commit (git add -A; author info is saved to this repo only).';
     }
 
     const empty = document.getElementById('graph-empty');

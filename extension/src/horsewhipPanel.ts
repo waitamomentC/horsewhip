@@ -35,7 +35,7 @@ export class HorsewhipPanel {
 
     const panel = vscode.window.createWebviewPanel(
       'horsewhipTimeline',
-      '马鞭 · Horsewhip',
+      'Horsewhip',
       { viewColumn: vscode.ViewColumn.One, preserveFocus: false },
       {
         enableScripts: true,

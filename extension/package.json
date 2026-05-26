@@ -1,8 +1,8 @@
 {
   "name": "horsewhip",
-  "displayName": "马鞭 · Horsewhip",
+  "displayName": "Horsewhip",
   "description": "Git file timeline · GitHub SSH publish · workspace git only",
-  "version": "0.4.9",
+  "version": "0.6.0",
   "publisher": "horsewhip",
   "license": "AGPL-3.0-or-later",
   "engines": {
@@ -21,7 +21,7 @@
       "activitybar": [
         {
           "id": "horsewhip",
-          "title": "马鞭",
+          "title": "Horsewhip",
           "icon": "media/horsewhip.svg"
         }
       ]
@@ -38,38 +38,38 @@
     "viewsWelcome": [
       {
         "view": "horsewhip.timelineView",
-        "contents": "Git 文件泳道时间线，全屏工作区打开。\n[打开马鞭工作区](command:horsewhip.open)"
+        "contents": "Git file swimlane timeline. Open in editor.\n[Open Horsewhip workspace](command:horsewhip.open)"
       }
     ],
     "commands": [
       {
         "command": "horsewhip.open",
-        "title": "马鞭: 打开时间线",
+        "title": "Horsewhip: Open Timeline",
         "icon": "$(symbol-event)"
       },
       {
         "command": "horsewhip.showTimeline",
-        "title": "马鞭: 打开时间线",
+        "title": "Horsewhip: Open Timeline",
         "icon": "$(symbol-event)"
       },
       {
         "command": "horsewhip.refresh",
-        "title": "马鞭: 刷新 Git 记录",
+        "title": "Horsewhip: Refresh Git Log",
         "icon": "$(refresh)"
       },
       {
         "command": "horsewhip.loadDemo",
-        "title": "马鞭: 加载演示数据",
+        "title": "Horsewhip: Load Demo Data",
         "icon": "$(beaker)"
       },
       {
         "command": "horsewhip.publishGithub",
-        "title": "马鞭: 发布到 GitHub (SSH)",
+        "title": "Horsewhip: Publish to GitHub (SSH)",
         "icon": "$(cloud-upload)"
       },
       {
         "command": "horsewhip.commit",
-        "title": "马鞭: 提交更改",
+        "title": "Horsewhip: Commit Changes",
         "icon": "$(git-commit)"
       }
     ],
@@ -98,7 +98,9 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "sync-assets": "node ./scripts/sync-web-assets.js",
-    "package": "npm run sync-assets && npm run compile && vsce package --no-dependencies"
+    "package": "npm run sync-assets && npm run compile && vsce package --no-dependencies",
+    "bump:patch": "npm version patch --no-git-tag-version",
+    "bump:minor": "npm version minor --no-git-tag-version"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",

@@ -34,10 +34,10 @@ npm run compile
 
 ```bash
 npm run package
-# 生成 horsewhip-0.3.0.vsix → 扩展视图 → 从 VSIX 安装
+# 生成 horsewhip-0.6.0.vsix → 扩展视图 → 从 VSIX 安装
 ```
 
-## 泳道来源（v0.3.1）
+## 泳道来源（v0.6.0）
 
 - **复制资源管理器的文件夹层级** → 左侧只显示目录（`TA/`、`TC/`…），**不列出** `a.c` 等单文件行
 - 目录下所有文件的 commit **汇聚**到该文件夹泳道上的节点
@@ -53,3 +53,5 @@ npm run package
 | 无工作区概念 | 必须先打开文件夹 + git 仓库 |
 
 修改根目录 `script.js` / `style.css` 后执行 `npm run sync-assets` 同步到 `media/`。
+
+自定义鞭子音效：在仓库根目录 `media/` 放入 `whip-crack.mp3`（或 `.wav` / `.ogg`），再 `npm run sync-assets`。详见根目录 [`media/README.md`](../media/README.md)。

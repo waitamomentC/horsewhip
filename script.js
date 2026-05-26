@@ -29,6 +29,9 @@
 
   const ROOT_BUCKET = '__root__';
   const LANE_LAYOUT_KEY = 'hw-lane-layout';
+  const WHIP_SOUND_MUTE_KEY = 'horsewhip:whip-sound-muted';
+  /** Drop your file at media/whip-crack.mp3 (or .wav / .ogg); see media/README.md */
+  const WHIP_CRACK_AUDIO_DEFAULT = 'media/whip-crack.mp3';
   const LANE_LAYOUT_GROUPED = 'grouped';
   const LANE_LAYOUT_FLAT = 'flat';
   const LANE_HUES = [210, 160, 280, 35, 350, 120, 45, 300, 190, 15, 250, 80];
@@ -45,7 +48,8 @@
     fileFilter: '',
     scrollTop: 0,
     expandedPaths: new Set(),
-    selectedNodeId: null,
+    /** Multi-select: graph node ids (hash:lanePath). */
+    selectedNodeIds: new Set(),
     selectedLink: null,
     pulseNodeId: null,
     nodeIndex: {},
@@ -64,7 +68,20 @@
     /** Plugin: workspace rel paths (explorer tree); web: null */
     workspaceFiles: isPluginHost() ? [] : null,
     pluginDemoAllFiles: false,
+    /** Derived from selectedNodeIds — unique file paths for constraint prompt. */
+    boundaryFiles: new Set(),
+    /** Last toggled-on node id — selection ripple anchor. */
+    lastSelectedNodeId: null,
+    /** File rail click: lane currently in view focus. */
+    focusedFilePath: null,
+    viewportAnimGeneration: 0,
+    whipSoundMuted: false,
   };
+
+  let whipAudioContext = null;
+  let whipCrackBuffer = null;
+  let whipCrackLoadPromise = null;
+  let whipCrackUseSynth = false;
 
   const LANE_VIEW_OVERSCAN = 4;
 
@@ -109,6 +126,8 @@
     btnLoadMoreCommits: $('#btn-load-more-commits'),
     btnZoomIn: $('#btn-zoom-in'),
     btnZoomOut: $('#btn-zoom-out'),
+    btnWhipSound: $('#btn-whip-sound'),
+    graphZoom: $('#graph-zoom'),
     zoomLabel: $('#zoom-label'),
     linkPanel: $('#link-panel'),
     linkConstraintText: $('#link-constraint-text'),
@@ -128,6 +147,13 @@
     resetConfirm: $('#reset-confirm'),
     btnCopyReset: $('#btn-copy-reset'),
     tooltip: $('#tooltip'),
+    boundaryBar: $('#hw-boundary'),
+    boundaryCount: $('#hw-boundary-count'),
+    boundaryFiles: $('#hw-boundary-files'),
+    boundaryPreview: $('#hw-boundary-preview'),
+    btnBoundaryClear: $('#btn-boundary-clear'),
+    btnBoundaryCopy: $('#btn-boundary-copy'),
+    btnBoundaryChat: $('#btn-boundary-chat'),
   };
 
   function isCommitHeaderLine(line) {
@@ -167,11 +193,25 @@
       const line = rawLine.trim();
       if (!line) continue;
 
+      const m6 = line.match(/^([0-9a-f]{7,40})\|([^|]*)\|([^|]*)\|([^|]+)\|([^|]+)\|(.+)$/i);
       const m5 = line.match(/^([0-9a-f]{7,40})\|([^|]*)\|([^|]*)\|(.+?)\|(.+)$/i);
       const m4p = line.match(/^([0-9a-f]{7,40})\|([^|]*)\|(.+?)\|(.+)$/i);
       const m3 = line.match(/^([0-9a-f]{7,40})\|(.+?)\|(.+)$/i);
 
-      if (m5) {
+      if (m6) {
+        if (current) commits.push(current);
+        const parents = m6[2].trim() && m6[2].trim() !== '-' ? m6[2].trim().split(/\s+/) : [];
+        const refs = parseRefs(m6[3]);
+        current = {
+          hash: m6[1],
+          parents,
+          refs,
+          author: m6[4],
+          date: m6[5],
+          subject: m6[6].trim(),
+          files: [],
+        };
+      } else if (m5) {
         if (current) commits.push(current);
         const parents = m5[2].trim() && m5[2].trim() !== '-' ? m5[2].trim().split(/\s+/) : [];
         const refs = parseRefs(m5[3]);
@@ -203,7 +243,7 @@
     }
     if (current) commits.push(current);
     if (commits.length === 0) {
-      throw new Error('无法解析 log。请使用 git log --all --name-only --pretty=format:"%H|%P|%D|%an|%ad"');
+      throw new Error('无法解析 log。请使用 git log --all --name-only --pretty=format:"%H|%P|%D|%an|%ad|%s"');
     }
 
     commits.reverse();
@@ -429,6 +469,35 @@
     return `V${Math.round(Number(column))}`;
   }
 
+  function truncateSubject(text, max = 16) {
+    const t = String(text || '').trim();
+    if (!t) return '';
+    if (t.length <= max) return t;
+    return `${t.slice(0, Math.max(1, max - 1))}…`;
+  }
+
+  function commitAtMainlineVersion(parsed, columnV) {
+    if (!parsed) return null;
+    return parsed.commits.find(
+      (c) => c.isMainline && c.mainlineVersionIndex === columnV,
+    ) || null;
+  }
+
+  function versionLabelWithSubject(parsed, columnV, maxSubject = 14) {
+    const base = formatDisplayVersion(columnV);
+    const headV = headMainlineVersion(parsed) || 0;
+    if (!parsed || columnV > headV) return base;
+    const subj = truncateSubject(commitAtMainlineVersion(parsed, columnV)?.subject, maxSubject);
+    return subj ? `${base} · ${subj}` : base;
+  }
+
+  function commitSubjectForNode(node) {
+    const fromNode = node?.subject?.trim();
+    if (fromNode) return fromNode;
+    const c = state.parsed?.commitMap?.[node?.hash];
+    return c?.subject?.trim() || '';
+  }
+
   function rulerExtent(parsed) {
     const headV = headMainlineVersion(parsed) || 0;
     let extent = CONFIG.RULER_PRESET;
@@ -532,8 +601,34 @@
     return headCol;
   }
 
+  function rippleTargetNodeId() {
+    const lastId = state.lastSelectedNodeId;
+    if (lastId && state.selectedNodeIds.has(lastId)) return lastId;
+    return state.pulseNodeId || null;
+  }
+
+  function nodeShowsRipples(node) {
+    const id = node?.id;
+    const target = rippleTargetNodeId();
+    return !!(id && target && id === target);
+  }
+
   function nodeIsPulsing(node) {
-    return !!(node?.id && state.pulseNodeId && node.id === state.pulseNodeId);
+    return nodeShowsRipples(node);
+  }
+
+  function syncNodeRippleVisuals() {
+    if (!gScroll) return;
+    gScroll.selectAll('.node-group').each(function () {
+      const sel = d3.select(this);
+      const d = sel.datum();
+      if (!d) return;
+      const show = nodeShowsRipples(d);
+      d.isPulse = show;
+      sel.classed('node-group--pulse', show);
+      sel.selectAll('.node-ripples').remove();
+      if (show && d.lane?.color) appendNodeRipples(sel, d.lane.color);
+    });
   }
 
   function pickDefaultPulseNode(nodes, parsed) {
@@ -553,17 +648,7 @@
 
   function setPulseNode(nodeId) {
     state.pulseNodeId = nodeId || null;
-    if (!gScroll) return;
-    gScroll.selectAll('.node-group').each(function () {
-      const sel = d3.select(this);
-      const d = sel.datum();
-      if (!d) return;
-      const isPulse = nodeIsPulsing(d);
-      d.isPulse = isPulse;
-      sel.classed('node-group--pulse', isPulse);
-      sel.selectAll('.node-ripples').remove();
-      if (isPulse && d.lane?.color) appendNodeRipples(sel, d.lane.color);
-    });
+    syncNodeRippleVisuals();
   }
 
   function updateGraphFocus() {
@@ -639,19 +724,22 @@
       && columnsMatch(n.displayColumn ?? n.graphX, columnV));
   }
 
-  /** Tooltip only on leaf file lanes (README.md, *.ts, etc.), not folders/clusters. */
+  /** Tooltip on file nodes and folder aggregate nodes. */
   function nodeCanShowTooltip(node) {
-    if (!node || node.isFolderAggregate || isVersionStepNode(node)) return false;
+    if (!node || isVersionStepNode(node)) return false;
+    if (node.isFolderAggregate) return true;
     if (node.isForkAnchor || node.isMergeAnchor) return true;
     const lane = node.lane;
-    if (!lane || lane.isHeader || lane.collapsed) return false;
-    if (lane.type === 'folder') return false;
+    if (!lane || lane.isHeader) return false;
+    if (lane.collapsed && !node.isFolderAggregate) return false;
+    if (lane.type === 'folder' && !node.isFolderAggregate) return false;
     const path = node.filePath || node.files?.[0] || lane.path;
     return Boolean(path && !String(path).endsWith('/'));
   }
 
   function nodeIconKind(node) {
     if (node.isFolderAggregate) return 'folder';
+    if (node.lane && laneIconKind(node.lane) === 'folder') return 'folder';
     const fp = node.filePath || node.files?.[0] || node.lane?.path || '';
     return fileIconKindFromPath(fp);
   }
@@ -669,16 +757,28 @@
     return `M${pts.map(([x, y]) => `${x},${y}`).join(' L ')} Z`;
   }
 
+  function folderRoundedRectRadius(width, height) {
+    return Math.min(width, height) * 0.24;
+  }
+
+  function appendSvgFolderRect(g, className, size, color) {
+    const side = size * 2;
+    const radius = folderRoundedRectRadius(side, side);
+    return g.append('rect')
+      .attr('class', className)
+      .attr('x', -size)
+      .attr('y', -size)
+      .attr('width', side)
+      .attr('height', side)
+      .attr('rx', radius)
+      .attr('ry', radius)
+      .attr('fill', color);
+  }
+
   function appendSvgLaneIcon(g, kind, color, size) {
     const side = size * 2;
     if (kind === 'folder') {
-      g.append('rect')
-        .attr('class', 'node-icon node-icon--folder')
-        .attr('x', -size)
-        .attr('y', -size)
-        .attr('width', side)
-        .attr('height', side)
-        .attr('fill', color);
+      appendSvgFolderRect(g, 'node-icon node-icon--folder', size, color);
       return;
     }
     if (kind === 'code') {
@@ -712,11 +812,15 @@
     svg.setAttribute('aria-hidden', 'true');
 
     if (kind === 'folder') {
+      const side = 5.4;
+      const r = folderRoundedRectRadius(side, side);
       const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      rect.setAttribute('x', '-2.7');
-      rect.setAttribute('y', '-2.7');
-      rect.setAttribute('width', '5.4');
-      rect.setAttribute('height', '5.4');
+      rect.setAttribute('x', String(-side / 2));
+      rect.setAttribute('y', String(-side / 2));
+      rect.setAttribute('width', String(side));
+      rect.setAttribute('height', String(side));
+      rect.setAttribute('rx', String(r));
+      rect.setAttribute('ry', String(r));
       rect.setAttribute('fill', color);
       svg.appendChild(rect);
     } else if (kind === 'code') {
@@ -1051,18 +1155,6 @@
     return lanes;
   }
 
-  /** Plugin: expand all folders so tree matches a fully-open Explorer. */
-  function seedPluginExpandedPaths(allFiles) {
-    if (!isPluginHost() || !allFiles?.length) return;
-    for (const f of allFiles) {
-      if (!f.includes('/')) continue;
-      const parts = f.split('/');
-      for (let i = 1; i < parts.length; i++) {
-        state.expandedPaths.add(`${parts.slice(0, i).join('/')}/`);
-      }
-    }
-  }
-
   function collectVisibleLanes(allFiles) {
     if (isPluginHost()) return collectExplorerTreeLanes(allFiles);
     if (state.laneLayout === LANE_LAYOUT_FLAT) return collectFlatFileLanes(allFiles);
@@ -1345,6 +1437,7 @@
       hash: commit.hash,
       author: commit.author,
       date: commit.date,
+      subject: commit.subject || '',
       versionIndex: commit.versionIndex,
       globalIndex: commit.displayColumn,
       graphX: commit.displayColumn,
@@ -1360,7 +1453,7 @@
       isPulse: nodeIsPulsing({ id: `${commit.hash}:${lane.path}` }),
       isHead: commit.hash === head.hash,
       isHub: true,
-      isFolderAggregate: lane.collapsed,
+      isFolderAggregate: lane.type === 'folder' && !lane.isHeader,
       isBranchLane: !!lane.isBranchLane,
     };
   }
@@ -1542,7 +1635,7 @@
   }
 
   function constraintSingle(filePath) {
-    return `【马鞭 · 文件边界约束】
+    return `【Horsewhip · 文件边界约束】
 只允许修改：${filePath}
 禁止修改仓库内其他任何文件。
 若必须改动其他文件，请先停下并说明理由，待确认后再继续。`;
@@ -1550,10 +1643,282 @@
 
   function constraintMulti(files) {
     const list = [...files].sort().join(', ');
-    return `【马鞭 · 文件边界约束】
+    return `【Horsewhip · 文件边界约束】
 允许修改：${list}
 （以上文件在该仓库历史中常于同一 commit 内共变）
 禁止修改上述范围以外的文件。`;
+  }
+
+  /** Phase 2: explicit task boundary from user multi-select (not git co-change). */
+  function constraintBoundary(items) {
+    const sorted = [...items].sort((a, b) => a.localeCompare(b));
+    const lines = sorted.map((item) => {
+      if (isFolderBoundaryPath(item)) {
+        const label = item === ROOT_BUCKET ? '仓库根目录/' : item;
+        return `- ${label}（文件夹，含其下所有路径）`;
+      }
+      return `- ${item}`;
+    }).join('\n');
+    return `【Horsewhip · 文件边界】
+本次任务只允许修改以下范围，不要创建/修改/删除其他任何路径：
+${lines}
+
+若必须改动其他文件，请先说明理由并等待确认后再继续。`;
+  }
+
+  function constraintFolder(folderPath) {
+    const label = folderPath === ROOT_BUCKET ? '仓库根目录/' : folderPath;
+    return `【Horsewhip · 文件夹边界】
+本次任务只允许修改 ${label} 目录下的内容，不要创建/修改/删除该目录以外的任何路径。
+
+若必须改动其他目录，请先说明理由并等待确认后再继续。`;
+  }
+
+  function isFolderBoundaryPath(path) {
+    return path === ROOT_BUCKET || String(path).endsWith('/');
+  }
+
+  function isFolderBoundaryNode(node) {
+    if (!node) return false;
+    if (node.isFolderAggregate) return true;
+    if (node.lane?.type === 'folder' && !node.lane?.isHeader) return true;
+    const p = node.lanePath || node.lane?.path;
+    return Boolean(p && isFolderBoundaryPath(p));
+  }
+
+  function folderBoundaryPathFromNode(node) {
+    if (!isFolderBoundaryNode(node)) return null;
+    let p = node.lanePath || node.lane?.path;
+    if (!p) return null;
+    if (p === ROOT_BUCKET) return ROOT_BUCKET;
+    return p.endsWith('/') ? p : `${p}/`;
+  }
+
+  function boundaryPathLabel(path) {
+    if (path === ROOT_BUCKET) return '(root)/';
+    return path;
+  }
+
+  function getBoundaryFilesList() {
+    return [...state.boundaryFiles].sort((a, b) => a.localeCompare(b));
+  }
+
+  function buildBoundaryPrompt() {
+    const items = getBoundaryFilesList();
+    if (items.length === 0) return '';
+    if (items.length === 1) {
+      const item = items[0];
+      return isFolderBoundaryPath(item) ? constraintFolder(item) : constraintSingle(item);
+    }
+    return constraintBoundary(items);
+  }
+
+  function nodeBoundaryPaths(node) {
+    if (!node) return [];
+    const folderPath = folderBoundaryPathFromNode(node);
+    if (folderPath) return [folderPath];
+    const primary = node.filePath || node.files?.[0];
+    return primary ? [primary] : [];
+  }
+
+  function nodeCanSelect(node) {
+    if (!node?.id || node.isVersionStep) return false;
+    if (isBranchGraphAnchor(node)) return false;
+    if (isFolderBoundaryNode(node)) return true;
+    return nodeBoundaryPaths(node).length > 0;
+  }
+
+  function rebuildBoundaryFromNodes() {
+    state.boundaryFiles.clear();
+    const paths = [];
+    state.selectedNodeIds.forEach((id) => {
+      const node = state.nodeIndex[id];
+      if (!node) return;
+      paths.push(...nodeBoundaryPaths(node));
+    });
+    const folders = paths.filter((p) => isFolderBoundaryPath(p));
+    const files = paths.filter((p) => !isFolderBoundaryPath(p));
+    const prunedFiles = files.filter(
+      (f) => !folders.some((dir) => fileMatchesLane(f, folderLaneForSelection(dir))),
+    );
+    [...folders, ...prunedFiles].forEach((p) => state.boundaryFiles.add(p));
+  }
+
+  function syncBoundaryBar() {
+    const nodeCount = state.selectedNodeIds.size;
+    const files = getBoundaryFilesList();
+    const hasSelection = nodeCount > 0;
+
+    if (els.boundaryBar) els.boundaryBar.hidden = !hasSelection;
+    if (els.boundaryCount) {
+      els.boundaryCount.textContent = nodeCount === 1 ? '1 个节点' : `${nodeCount} 个节点`;
+    }
+    if (els.boundaryFiles) {
+      els.boundaryFiles.textContent = hasSelection ? files.map(boundaryPathLabel).join(' · ') : '';
+      els.boundaryFiles.title = hasSelection ? files.map(boundaryPathLabel).join('\n') : '';
+    }
+    if (els.boundaryPreview) {
+      els.boundaryPreview.textContent = hasSelection ? buildBoundaryPrompt() : '';
+    }
+    if (els.btnBoundaryCopy) els.btnBoundaryCopy.disabled = !hasSelection;
+    if (els.btnBoundaryChat) els.btnBoundaryChat.disabled = !hasSelection;
+
+    if (isPluginHost() && window.HorsewhipPluginBridge?.setBoundaryAllowlist) {
+      window.HorsewhipPluginBridge.setBoundaryAllowlist(files);
+    }
+    if (isPluginHost() && state.catalog?.lanes?.length) {
+      updatePluginBar(state.catalog.lanes.length);
+    }
+    syncFileRailBoundaryHighlight();
+  }
+
+  function syncFileRailBoundaryHighlight() {
+    if (!els.fileRailInner) return;
+    const items = getBoundaryFilesList();
+    const folders = items.filter(isFolderBoundaryPath);
+    const files = items.filter((p) => !isFolderBoundaryPath(p));
+    els.fileRailInner.querySelectorAll('.file-rail__item').forEach((row) => {
+      row.classList.remove('file-rail__item--boundary');
+      const folderPath = row.dataset.folderPath;
+      const filePath = row.dataset.filePath;
+      if (folderPath && folders.includes(folderPath)) {
+        row.classList.add('file-rail__item--boundary');
+        return;
+      }
+      if (filePath && files.includes(filePath)) {
+        if (!folders.some((dir) => fileMatchesLane(filePath, folderLaneForSelection(dir)))) {
+          row.classList.add('file-rail__item--boundary');
+        }
+      }
+    });
+  }
+
+  function clearNodeSelection() {
+    if (state.selectedNodeIds.size === 0) return;
+    state.selectedNodeIds.clear();
+    state.boundaryFiles.clear();
+    state.lastSelectedNodeId = null;
+    syncBoundaryBar();
+    updateSelectionVisuals();
+  }
+
+  function toggleSelectedNode(node) {
+    if (!nodeCanSelect(node) || !state.parsed) return;
+    if (state.selectedNodeIds.has(node.id)) {
+      state.selectedNodeIds.delete(node.id);
+      if (state.lastSelectedNodeId === node.id) {
+        state.lastSelectedNodeId = [...state.selectedNodeIds].slice(-1)[0] || null;
+      }
+    } else {
+      state.selectedNodeIds.add(node.id);
+      state.lastSelectedNodeId = node.id;
+    }
+    rebuildBoundaryFromNodes();
+    syncBoundaryBar();
+  }
+
+  function folderLaneForSelection(folderPath) {
+    return { type: 'folder', path: folderPath, isHeader: false, collapsed: true };
+  }
+
+  function findLaneIndexForFolderPath(folderPath) {
+    const lanes = state.catalog?.lanes;
+    if (!lanes) return -1;
+    const lane = lanes.find((l) => l.path === folderPath && l.type === 'folder');
+    return lane?.laneIndex ?? -1;
+  }
+
+  function toggleFolderClusterSelection(node) {
+    toggleSelectedNode(node);
+  }
+
+  function buildFolderSelectionNode(folderPath) {
+    if (!state.parsed) return null;
+    refreshNodeIndex();
+    const columnV = state.focusGraphX ?? resolveFocusGraphX(state.parsed);
+    const folderLane = folderLaneForSelection(folderPath);
+    const commit = state.parsed.commits.find(
+      (c) => columnsMatch(c.displayColumn ?? c.graphX, columnV)
+        && c.files.some((f) => fileMatchesLane(f, folderLane)),
+    );
+    if (!commit) return null;
+    const laneIndex = findLaneIndexForFolderPath(folderPath);
+    return {
+      id: `${commit.hash}:${folderPath}`,
+      hash: commit.hash,
+      displayColumn: commit.displayColumn ?? commit.graphX,
+      graphX: commit.displayColumn ?? commit.graphX,
+      lanePath: folderPath,
+      laneIndex,
+      lane: { path: folderPath, collapsed: true, type: 'folder' },
+      isFolderAggregate: true,
+      label: folderDisplayLabel(folderPath),
+    };
+  }
+
+  function selectFolderFromRail(lane) {
+    const stub = buildFolderSelectionNode(lane.path);
+    if (!stub) return;
+    hideTooltip();
+    state.animateNext = false;
+    state.selectedLink = null;
+    els.linkPanel.hidden = true;
+    state.nodeIndex[stub.id] = stub;
+    toggleSelectedNode(stub);
+    state.focusGraphX = stub.displayColumn ?? stub.graphX;
+    state.pulseNodeId = state.selectedNodeIds.has(stub.id) ? stub.id : null;
+    updateGraphFocus();
+    updateSelectionVisuals();
+  }
+
+  function wireFileRailFolderRow(row, lane, chev) {
+    if (lane.type !== 'folder' && !lane.collapsed && !lane.isHeader) return;
+
+    const folderLabel = lane.path === ROOT_BUCKET ? '(root)' : lane.path;
+
+    if (lane.isHeader) {
+      row.dataset.folderPath = lane.path;
+      row.classList.add('file-rail__item--folder-header');
+      row.title = `${folderLabel} · 点击收起`;
+      const onCollapse = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleExpand(lane.path, e.altKey);
+      };
+      if (chev) {
+        chev.classList.add('file-rail__chev--collapse');
+        chev.title = `收起 ${lane.label || folderLabel}`;
+        chev.addEventListener('click', onCollapse);
+      }
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('.file-rail__chev--collapse')) return;
+        onCollapse(e);
+      });
+      return;
+    }
+
+    if (!lane.collapsed) return;
+
+    row.dataset.folderPath = lane.path;
+    row.title = `${folderLabel} · 点击选中文件夹边界 · ▸ 展开`;
+    if (chev) {
+      chev.classList.add('file-rail__chev--expand');
+      chev.title = `展开 ${lane.label || folderLabel}`;
+      chev.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleExpand(lane.path, e.altKey);
+      });
+    }
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('.file-rail__chev--expand')) return;
+      if (e.altKey && isPluginHost() && window.HorsewhipPluginBridge?.revealFolder) {
+        window.HorsewhipPluginBridge.revealFolder(lane.path === ROOT_BUCKET ? '' : lane.path);
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      selectFolderFromRail(lane);
+    });
   }
 
   function cmdCheckout(hash, filePath) {
@@ -1611,10 +1976,162 @@ git reset --hard ${hash}`;
 
   function panXForHeadFocus(parsed) {
     const headCol = headMainlineVersion(parsed) || headColumn(parsed);
-    const headScreenX = CONFIG.MARGIN.left + versionColumnX(headCol);
-    const vpW = els.graphViewport.clientWidth || 800;
-    const targetX = vpW * 0.62;
-    return Math.max(computePanBounds().panMin, headScreenX - targetX);
+    return panXForColumnFocus(headCol);
+  }
+
+  function panXForColumnFocus(columnV) {
+    const colScreenX = CONFIG.MARGIN.left + versionColumnX(columnV);
+    const vpW = els.graphViewport?.clientWidth || 800;
+    const targetX = vpW * 0.5;
+    return Math.max(computePanBounds().panMin, colScreenX - targetX);
+  }
+
+  function latestVersionColumnForFile(parsed, filePath) {
+    const tl = parsed.fileTimelines?.[filePath];
+    if (tl?.length) {
+      const last = tl[tl.length - 1];
+      return last.displayColumn ?? last.versionIndex ?? last.graphX ?? headColumn(parsed);
+    }
+    return headMainlineVersion(parsed) || headColumn(parsed);
+  }
+
+  function findLaneIndexForFilePath(filePath) {
+    const lanes = state.catalog?.lanes;
+    if (!lanes) return -1;
+    const lane = lanes.find((l) => l.type === 'file' && l.path === filePath);
+    return lane ? lane.laneIndex : -1;
+  }
+
+  function scrollTopForLaneCenter(laneIndex) {
+    const vpH = els.graphViewport?.clientHeight || 600;
+    const laneY = laneCenterY(laneIndex);
+    const maxScroll = Math.max(0, (els.fileRailInner?.offsetHeight || 0) - (els.fileRail?.clientHeight || vpH));
+    return Math.max(0, Math.min(maxScroll, laneY - vpH / 2));
+  }
+
+  function syncFileRailScrollFromState() {
+    if (!els.fileRail) return;
+    scrollSync = true;
+    els.fileRail.scrollTop = state.scrollTop;
+    scrollSync = false;
+  }
+
+  function applyGraphTransformImmediate() {
+    if (!gMain) return;
+    gMain.attr('transform', `translate(${-state.panX}, ${-state.scrollTop})`);
+  }
+
+  function animateViewportTo(targetPanX, targetScrollTop, duration = 420) {
+    if (!gMain || !state.parsed) return Promise.resolve();
+    const gen = ++state.viewportAnimGeneration;
+    const bounds = computePanBounds();
+    const startPan = state.panX ?? bounds.panMin;
+    const startScroll = state.scrollTop ?? 0;
+    const endPan = clampPan(targetPanX, bounds);
+    const maxScroll = Math.max(0, els.fileRailInner.offsetHeight - els.fileRail.clientHeight);
+    const endScroll = Math.max(0, Math.min(maxScroll, targetScrollTop));
+    const needMove = Math.abs(endPan - startPan) > 0.5 || Math.abs(endScroll - startScroll) > 0.5;
+
+    const finish = () => {
+      if (gen !== state.viewportAnimGeneration) return;
+      state.panX = endPan;
+      state.scrollTop = endScroll;
+      applyGraphTransformImmediate();
+      syncFileRailScrollFromState();
+      updateVisibleColumnWindow();
+      scheduleViewportSync({ invalidateSlices: true });
+    };
+
+    if (!needMove) {
+      finish();
+      return Promise.resolve();
+    }
+
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      finish();
+      return Promise.resolve();
+    }
+
+    gMain.interrupt();
+
+    return new Promise((resolve) => {
+      d3.select(gMain.node())
+        .transition('hw-viewport-pan')
+        .duration(duration)
+        .ease(d3.easeCubicInOut)
+        .tween('hw-viewport', () => {
+          const panI = d3.interpolateNumber(startPan, endPan);
+          const scrollI = d3.interpolateNumber(startScroll, endScroll);
+          return (t) => {
+            if (gen !== state.viewportAnimGeneration) return;
+            state.panX = panI(t);
+            state.scrollTop = scrollI(t);
+            applyGraphTransformImmediate();
+            syncFileRailScrollFromState();
+          };
+        })
+        .on('end', () => {
+          if (gen !== state.viewportAnimGeneration) return;
+          finish();
+          resolve();
+        });
+    });
+  }
+
+  function focusFileLane(filePath) {
+    if (!state.parsed || !state.catalog || !filePath) return;
+    const parsed = state.parsed;
+    const columnV = latestVersionColumnForFile(parsed, filePath);
+    const laneIndex = findLaneIndexForFilePath(filePath);
+
+    state.focusedFilePath = filePath;
+    state.focusGraphX = columnV;
+    syncFileRailFocusHighlight();
+
+    const panX = panXForColumnFocus(columnV);
+    const scrollTop = laneIndex >= 0 ? scrollTopForLaneCenter(laneIndex) : state.scrollTop;
+
+    updateGraphFocus();
+
+    void animateViewportTo(panX, scrollTop).then(() => {
+      if (state.focusedFilePath !== filePath) return;
+      const lane = laneIndex >= 0 ? state.catalog.lanes[laneIndex] : null;
+      if (lane) {
+        const commit = parsed.commits.find(
+          (c) => columnsMatch(c.displayColumn ?? c.graphX, columnV)
+            && c.files.some((f) => fileMatchesLane(f, lane)),
+        );
+        if (commit) {
+          state.pulseNodeId = `${commit.hash}:${lane.path}`;
+          setPulseNode(state.pulseNodeId);
+        }
+      }
+      updateGraphFocus();
+    });
+  }
+
+  function syncFileRailFocusHighlight() {
+    if (!els.fileRailInner) return;
+    els.fileRailInner.querySelectorAll('[data-file-path]').forEach((row) => {
+      row.classList.toggle(
+        'file-rail__item--focused',
+        row.getAttribute('data-file-path') === state.focusedFilePath,
+      );
+    });
+  }
+
+  function wireFileRailFocus(row, lane) {
+    if (lane.type !== 'file' || lane.isBranchLane || lane.collapsed || lane.isHeader) return;
+    row.dataset.filePath = lane.path;
+    row.classList.add('file-rail__item--focusable');
+    row.classList.toggle('file-rail__item--focused', lane.path === state.focusedFilePath);
+    row.addEventListener('click', (e) => {
+      if (e.altKey) return;
+      if (e.target.closest('.file-rail__chev--collapse')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      focusFileLane(lane.path);
+    });
   }
 
   function invalidateLaneSliceCache() {
@@ -1937,13 +2454,7 @@ git reset --hard ${hash}`;
       .datum(node);
 
     const side = ICON_SIZE * 2 + 2;
-    g.append('rect')
-      .attr('class', 'node-folder-cluster')
-      .attr('x', -side / 2)
-      .attr('y', -side / 2)
-      .attr('width', side)
-      .attr('height', side)
-      .attr('fill', color);
+    appendSvgFolderRect(g, 'node-folder-cluster', side / 2, color);
 
     const hit = g.append('circle')
       .attr('class', 'node-hit node-hit--folder')
@@ -1953,7 +2464,12 @@ git reset --hard ${hash}`;
 
     hit
       .style('cursor', 'pointer')
-      .on('click', (ev) => { ev.stopPropagation(); onFolderClusterClick(ev, node, bundle); });
+      .on('click', (ev) => { ev.stopPropagation(); onFolderClusterClick(ev, node); })
+      .on('dblclick', (ev) => {
+        ev.stopPropagation();
+        suppressOutsideClick = true;
+        openNodeModal(node);
+      });
 
     g.select('.node-folder-cluster').style('pointer-events', 'none');
 
@@ -1968,6 +2484,8 @@ git reset --hard ${hash}`;
         .attr('pointer-events', 'none')
         .text(node.fileCount);
     }
+
+    bindFolderNodePointer(g, node);
   }
 
   function runGraphEntrance() {
@@ -2030,8 +2548,9 @@ git reset --hard ${hash}`;
 
   function applyGraphTransform() {
     if (!gMain) return;
-    const t = `translate(${-state.panX}, ${-state.scrollTop})`;
-    gMain.interrupt().attr('transform', t);
+    state.viewportAnimGeneration += 1;
+    gMain.interrupt();
+    applyGraphTransformImmediate();
   }
 
   function yieldToNextFrame() {
@@ -2134,6 +2653,8 @@ git reset --hard ${hash}`;
           }
           toggleExpand(lane.path, e.altKey);
         });
+      } else {
+        wireFileRailFocus(row, lane);
       }
       return row;
     }
@@ -2154,17 +2675,12 @@ git reset --hard ${hash}`;
       row.classList.add('file-rail__item--folder');
       row.appendChild(createRailIcon(lane));
       row.appendChild(chev);
-      row.addEventListener('click', (e) => {
-        if (e.altKey && isPluginHost() && window.HorsewhipPluginBridge?.revealFolder) {
-          window.HorsewhipPluginBridge.revealFolder(lane.path === ROOT_BUCKET ? '' : lane.path);
-          return;
-        }
-        toggleExpand(lane.path, e.altKey);
-      });
+      wireFileRailFolderRow(row, lane, chev);
     } else {
       row.appendChild(createRailIcon(lane));
     }
     row.appendChild(label);
+    wireFileRailFocus(row, lane);
     return row;
   }
 
@@ -2196,7 +2712,7 @@ git reset --hard ${hash}`;
         link.active,
         laneLine(x1, y, x2, y),
         isTrace ? link : { from: link.from, to: link.to },
-        isTrace ? null : (d) => onBundleClick(d.to),
+        null,
         link.lane.color,
         link.lane.colorDim,
       );
@@ -2278,6 +2794,8 @@ git reset --hard ${hash}`;
   function prepareFileRailAllRows(lanes) {
     const inner = prepareFileRailShell(lanes);
     lanes.forEach((lane) => inner.appendChild(appendFileRailRow(lane)));
+    syncFileRailFocusHighlight();
+    syncFileRailBoundaryHighlight();
   }
 
   function getLaneSlice(laneIndex) {
@@ -2444,14 +2962,16 @@ git reset --hard ${hash}`;
       el.textContent = '读取 git log…';
       return;
     }
+    const boundaryN = state.selectedNodeIds.size;
     const ws = state.workspaceFiles?.length ?? 0;
     if (laneCount > 0) {
       const lanes = state.catalog?.lanes || [];
       const dirs = lanes.filter((l) => l.type === 'folder' && (l.collapsed || l.isHeader)).length;
       const files = lanes.filter((l) => l.type === 'file').length;
-      el.textContent = files > 0
+      const base = files > 0
         ? `${files} 个文件 · ${dirs} 个目录`
         : `${laneCount} 行`;
+      el.textContent = boundaryN > 0 ? `${base} · 边界 ${boundaryN}` : base;
     } else {
       el.textContent = ws > 0 ? '目录已同步，等待 git 记录' : '同步工作区目录…';
     }
@@ -2463,7 +2983,7 @@ git reset --hard ${hash}`;
       const title = els.graphEmpty.querySelector('.graph-empty__title');
       const desc = els.graphEmpty.querySelector('.graph-empty__desc');
       if (title) title.textContent = '暂无泳道';
-      if (desc) desc.textContent = '请确认已有 commit，或执行「马鞭: 刷新 Git 记录」';
+      if (desc) desc.textContent = '请确认已有 commit，或执行「Horsewhip: Refresh Git Log」';
     }
     if (els.graphHint) els.graphHint.hidden = true;
     if (els.graphZoom) els.graphZoom.hidden = true;
@@ -2673,18 +3193,16 @@ git reset --hard ${hash}`;
     return '…' + str.slice(-43);
   }
 
-  function onFolderClusterClick(ev, node, bundle) {
+  function onFolderClusterClick(ev, node) {
     hideTooltip();
     state.animateNext = false;
-
-    if (node.isFolderAggregate && node.lanePath) {
-      state.expandedPaths.add(node.lanePath);
-      expandAncestorsForFiles(node.files || []);
-      renderFromState();
-      return;
-    }
-
-    if (bundle) onBundleClick({ ...bundle, files: node.files });
+    state.selectedLink = null;
+    els.linkPanel.hidden = true;
+    toggleFolderClusterSelection(node);
+    state.focusGraphX = node.displayColumn ?? node.graphX;
+    state.pulseNodeId = state.selectedNodeIds.has(node.id) ? node.id : null;
+    updateGraphFocus();
+    updateSelectionVisuals();
   }
 
   function nodeClickAnchor(ev) {
@@ -2693,9 +3211,13 @@ git reset --hard ${hash}`;
   }
 
   function onFileNodeClick(ev, node) {
+    toggleSelectedNode(node);
     state.focusGraphX = node.displayColumn ?? node.graphX;
-    state.selectedNodeId = node.id;
-    state.pulseNodeId = (nodeCanShowTooltip(node) && !isBranchGraphAnchor(node)) ? node.id : state.pulseNodeId;
+    if (state.selectedNodeIds.has(node.id) && nodeCanShowTooltip(node) && !isBranchGraphAnchor(node)) {
+      state.pulseNodeId = node.id;
+    } else if (state.pulseNodeId === node.id) {
+      state.pulseNodeId = null;
+    }
     state.selectedLink = null;
     els.linkPanel.hidden = true;
     updateGraphFocus();
@@ -2706,17 +3228,25 @@ git reset --hard ${hash}`;
     if (isBranchGraphAnchor(node)) return;
     state.modalNode = node;
     const files = node.files || [node.filePath];
-    els.modalTitle.textContent = `${formatDisplayVersion(node.displayColumn ?? node.graphX)} · ${node.hash.slice(0, 7)}`;
+    els.modalTitle.textContent = (() => {
+      const ver = formatDisplayVersion(node.displayColumn ?? node.graphX);
+      const subj = commitSubjectForNode(node);
+      return subj ? `${ver} · ${subj}` : `${ver} · ${node.hash.slice(0, 7)}`;
+    })();
     els.modalMeta.textContent = `${node.author} · ${node.date}`;
     els.modalFile.textContent = node.isFolderAggregate
-      ? `${node.label}\n${files.join('\n')}`
+      ? (node.lanePath === ROOT_BUCKET ? '(root)/' : node.lanePath)
       : files[0];
-    els.modalConstraint.textContent = files.length === 1
-      ? constraintSingle(files[0])
-      : constraintMulti(files);
-    els.modalCmdFile.textContent = files.length === 1
-      ? cmdCheckout(node.hash, files[0])
-      : files.map((f) => cmdCheckout(node.hash, f)).join('\n');
+    els.modalConstraint.textContent = (() => {
+      const folderPath = folderBoundaryPathFromNode(node);
+      if (folderPath) return constraintFolder(folderPath);
+      return files.length === 1 ? constraintSingle(files[0]) : constraintMulti(files);
+    })();
+    els.modalCmdFile.textContent = node.isFolderAggregate
+      ? `# 文件夹边界 · 请按需 checkout 目录下具体文件\n${files.map((f) => cmdCheckout(node.hash, f)).join('\n')}`
+      : (files.length === 1
+        ? cmdCheckout(node.hash, files[0])
+        : files.map((f) => cmdCheckout(node.hash, f)).join('\n'));
     els.modalCmdReset.textContent = cmdResetHard(node.hash);
     els.rollbackDanger.hidden = true;
     els.resetConfirm.value = '';
@@ -2730,31 +3260,347 @@ git reset --hard ${hash}`;
     const commit = bundle.commit || bundle;
     const graphX = commit.displayColumn ?? bundle.displayColumn ?? bundle.graphX;
     if (graphX != null) state.focusGraphX = graphX;
-    const files = bundle.files || commit.files;
     state.selectedLink = bundle;
-    state.selectedNodeId = null;
-    state.modalNode = null;
+    els.linkPanel.hidden = true;
+    updateGraphFocus();
     updateSelectionVisuals();
-    els.modalBackdrop.hidden = true;
-    const text = constraintMulti(files);
-    els.linkConstraintText.textContent = text;
-    els.linkPanel.hidden = false;
-    els.linkPanel.dataset.constraint = text;
-    state.animateNext = false;
-    renderFromState();
-    updateSelectionVisuals();
+  }
+
+  function constraintForNode(node) {
+    const folderPath = folderBoundaryPathFromNode(node);
+    if (folderPath) return constraintFolder(folderPath);
+    const files = node.files || [node.filePath];
+    if (files.length === 1) return constraintSingle(files[0]);
+    return constraintMulti(files);
+  }
+
+  function nodeCanWhip(node) {
+    if (!node || node.isVersionStep) return false;
+    if (isBranchGraphAnchor(node)) return false;
+    if (isFolderBoundaryNode(node)) return true;
+    const files = node.files || [node.filePath];
+    return Boolean(files?.length && files[0]);
+  }
+
+  function showCopyToast(message) {
+    let el = document.getElementById('hw-copy-toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'hw-copy-toast';
+      el.className = 'hw-copy-toast';
+      document.body.appendChild(el);
+    }
+    el.textContent = message;
+    el.hidden = false;
+    clearTimeout(showCopyToast._timer);
+    showCopyToast._timer = setTimeout(() => {
+      el.hidden = true;
+    }, 1800);
+  }
+
+  function ensureWhipAudioContext() {
+    if (whipAudioContext) return whipAudioContext;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return null;
+    try {
+      whipAudioContext = new Ctx();
+    } catch {
+      return null;
+    }
+    return whipAudioContext;
+  }
+
+  function loadWhipSoundMuted() {
+    try {
+      return localStorage.getItem(WHIP_SOUND_MUTE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  function saveWhipSoundMuted(muted) {
+    try {
+      localStorage.setItem(WHIP_SOUND_MUTE_KEY, muted ? '1' : '0');
+    } catch { /* ignore */ }
+  }
+
+  function getWhipCrackAudioUrl() {
+    const meta = document.querySelector('meta[name="horsewhip-whip-audio"]');
+    const url = meta?.getAttribute('content')?.trim();
+    return url || WHIP_CRACK_AUDIO_DEFAULT;
+  }
+
+  function whipCrackAudioCandidates(primary) {
+    const list = [primary];
+    if (/^https?:/i.test(primary) || primary.includes('vscode-webview://')) return list;
+    const stem = primary.replace(/\.(mp3|wav|ogg|m4a|webm)$/i, '');
+    if (stem !== primary) {
+      for (const ext of ['mp3', 'wav', 'ogg', 'm4a']) {
+        const alt = `${stem}.${ext}`;
+        if (!list.includes(alt)) list.push(alt);
+      }
+    } else if (!primary.includes('.')) {
+      for (const ext of ['mp3', 'wav', 'ogg']) list.push(`${primary}.${ext}`);
+    }
+    return list;
+  }
+
+  function loadWhipCrackAudio() {
+    if (whipCrackBuffer || whipCrackUseSynth) return Promise.resolve();
+    if (whipCrackLoadPromise) return whipCrackLoadPromise;
+    whipCrackLoadPromise = (async () => {
+      const ctx = ensureWhipAudioContext();
+      if (!ctx) {
+        whipCrackUseSynth = true;
+        return;
+      }
+      if (ctx.state === 'suspended') {
+        try { await ctx.resume(); } catch { /* ignore */ }
+      }
+      for (const url of whipCrackAudioCandidates(getWhipCrackAudioUrl())) {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) continue;
+          const arr = await res.arrayBuffer();
+          whipCrackBuffer = await ctx.decodeAudioData(arr.slice(0));
+          return;
+        } catch { /* try next format */ }
+      }
+      whipCrackUseSynth = true;
+    })();
+    return whipCrackLoadPromise;
+  }
+
+  function playWhipCrackFromBuffer(ctx, buffer) {
+    const now = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(1, now);
+    src.connect(gain);
+    gain.connect(ctx.destination);
+    src.start(now);
+    src.stop(now + buffer.duration);
+  }
+
+  function playWhipCrackSoundSynth(ctx) {
+    const now = ctx.currentTime;
+    const sampleRate = ctx.sampleRate;
+    const crackDur = 0.045;
+    const len = Math.floor(sampleRate * crackDur);
+    const buf = ctx.createBuffer(1, len, sampleRate);
+    const ch = buf.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      const t = i / len;
+      ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 11);
+    }
+
+    const noise = ctx.createBufferSource();
+    noise.buffer = buf;
+
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 3200;
+
+    const peak = ctx.createBiquadFilter();
+    peak.type = 'peaking';
+    peak.frequency.value = 5200;
+    peak.Q.value = 1.6;
+    peak.gain.value = 9;
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(0.88, now);
+    gain.gain.exponentialRampToValueAtTime(0.0008, now + crackDur);
+
+    noise.connect(hp);
+    hp.connect(peak);
+    peak.connect(gain);
+    gain.connect(ctx.destination);
+    noise.start(now);
+    noise.stop(now + crackDur);
+
+    const click = ctx.createOscillator();
+    click.type = 'sine';
+    click.frequency.setValueAtTime(3800, now);
+    click.frequency.exponentialRampToValueAtTime(1800, now + 0.01);
+    const clickGain = ctx.createGain();
+    clickGain.gain.setValueAtTime(0.14, now);
+    clickGain.gain.exponentialRampToValueAtTime(0.0008, now + 0.012);
+    click.connect(clickGain);
+    clickGain.connect(ctx.destination);
+    click.start(now);
+    click.stop(now + 0.014);
+  }
+
+  function playWhipCrackSound() {
+    if (state.whipSoundMuted) return;
+    const ctx = ensureWhipAudioContext();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') void ctx.resume();
+
+    if (whipCrackBuffer) {
+      playWhipCrackFromBuffer(ctx, whipCrackBuffer);
+      return;
+    }
+    if (whipCrackUseSynth) {
+      playWhipCrackSoundSynth(ctx);
+      return;
+    }
+    void loadWhipCrackAudio().then(() => {
+      if (state.whipSoundMuted) return;
+      const c = ensureWhipAudioContext();
+      if (!c) return;
+      if (whipCrackBuffer) playWhipCrackFromBuffer(c, whipCrackBuffer);
+      else playWhipCrackSoundSynth(c);
+    });
+  }
+
+  function syncWhipSoundMuteButton() {
+    const btn = els.btnWhipSound;
+    if (!btn) return;
+    const muted = state.whipSoundMuted;
+    btn.setAttribute('aria-pressed', muted ? 'true' : 'false');
+    btn.title = muted ? '开启挥鞭音效' : '关闭挥鞭音效';
+    btn.setAttribute('aria-label', btn.title);
+    btn.classList.toggle('hw-sound-btn--muted', muted);
+    const on = btn.querySelector('.hw-sound__on');
+    const off = btn.querySelector('.hw-sound__off');
+    if (on) on.hidden = muted;
+    if (off) off.hidden = !muted;
+  }
+
+  function toggleWhipSoundMute() {
+    state.whipSoundMuted = !state.whipSoundMuted;
+    saveWhipSoundMuted(state.whipSoundMuted);
+    syncWhipSoundMuteButton();
+  }
+
+  const WHIP_ICON_REV = '6';
+
+  function whipIconSvgHtml(svgClass = 'hw-whip-btn__svg') {
+    const large = svgClass === 'hw-whip-float__svg';
+    const sparkR = large ? 2 : 1.35;
+    const sparkCore = large ? 0.95 : 0.62;
+    const gripRx = large ? 1.55 : 1.05;
+    const gripRy = large ? 1.02 : 0.68;
+    const edgeW = large ? 0.38 : 0.24;
+    // Tapered lash: thick at handle (-5.5, 3.45) → hair-thin tip (~6.2, 0)
+    return `<svg class="${svgClass}" viewBox="-8 -6 16 12" aria-hidden="true">
+      <g class="hw-whip-icon__lash">
+        <ellipse class="hw-whip-icon__grip" cx="-5.5" cy="3.45" rx="${gripRx}" ry="${gripRy}" fill="#92400e"/>
+        <path fill="#f97316" d="M-6.5,2.45 C-3.55,0.75 1.25,-5.5 6.32,0.04 L6.02,0.2 C0.2,-4.05 -3.35,0.9 -4.48,4.22 Z"/>
+        <path class="hw-whip-icon__lash-edge" fill="none" stroke="#c2410c" stroke-width="${edgeW}" stroke-linecap="round" d="M-6.5,2.45 C-3.55,0.75 1.25,-5.5 6.32,0.04"/>
+      </g>
+      <circle class="hw-whip-icon__spark" cx="6.18" cy="0.1" r="${sparkR}" fill="#fbbf24"/>
+      <circle cx="6.18" cy="0.1" r="${sparkCore}" fill="#fef9c3"/>
+    </svg>`;
+  }
+
+  function mountWhipIcon(host, svgClass) {
+    if (!host) return;
+    if (host.dataset.whipV === WHIP_ICON_REV && host.querySelector('.hw-whip-icon__lash')) return;
+    host.dataset.whipV = WHIP_ICON_REV;
+    host.querySelector('svg')?.remove();
+    host.insertAdjacentHTML('beforeend', whipIconSvgHtml(svgClass));
+  }
+
+  function crackWhipOnSelection(nodes, btnEl) {
+    if (!nodes?.length) return;
+    const crackTarget = btnEl?.closest?.('.hw-whip-float') || btnEl;
+    crackTarget?.classList.add('hw-whip-btn--crack', 'hw-whip-float--crack');
+    playWhipCrackSound();
+    const text = nodes.length === 1 ? constraintForNode(nodes[0]) : buildBoundaryPrompt();
+    copyText(text);
+    showCopyToast(
+      nodes.length === 1
+        ? '约束已复制 · 粘贴到 Chat 即可'
+        : `${nodes.length} 个节点约束已复制 · 粘贴到 Chat 即可`,
+    );
+    setTimeout(() => crackTarget?.classList.remove('hw-whip-btn--crack', 'hw-whip-float--crack'), 520);
+  }
+
+  let whipFloatNodesForCopy = null;
+
+  function ensureWhipFloatEl() {
+    let el = document.getElementById('hw-whip-float');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'hw-whip-float';
+      el.className = 'hw-whip-float';
+      el.hidden = true;
+      el.innerHTML = `<button type="button" class="hw-whip-float__btn hw-whip-btn" aria-label="复制约束" title="复制约束"></button>`;
+      el.querySelector('.hw-whip-float__btn').addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        suppressOutsideClick = true;
+        if (whipFloatNodesForCopy?.length) {
+          crackWhipOnSelection(whipFloatNodesForCopy, el);
+        }
+      });
+      document.body.appendChild(el);
+    }
+    mountWhipIcon(el.querySelector('.hw-whip-float__btn'), 'hw-whip-float__svg');
+    return el;
+  }
+
+  function hideWhipFloat() {
+    whipFloatNodesForCopy = null;
+    const el = document.getElementById('hw-whip-float');
+    if (el) {
+      el.hidden = true;
+      el.classList.remove('hw-whip-float--crack', 'hw-whip-btn--crack');
+    }
+  }
+
+  function showWhipFloat(_node, nodesForCopy) {
+    if (!nodesForCopy?.length) {
+      hideWhipFloat();
+      return;
+    }
+    const el = ensureWhipFloatEl();
+    whipFloatNodesForCopy = nodesForCopy;
+    el.hidden = false;
+  }
+
+  function selectedWhipNodes() {
+    return [...state.selectedNodeIds]
+      .map((id) => state.nodeIndex[id])
+      .filter((node) => nodeCanWhip(node));
+  }
+
+  function whipHostNode() {
+    const lastId = state.lastSelectedNodeId;
+    if (lastId && state.selectedNodeIds.has(lastId) && state.nodeIndex[lastId]) {
+      return state.nodeIndex[lastId];
+    }
+    const nodes = selectedWhipNodes();
+    return nodes.length ? nodes[nodes.length - 1] : null;
   }
 
   function updateSelectionVisuals() {
     const bundle = state.selectedLink;
+    d3.selectAll('.node-selection-ring').remove();
     d3.selectAll('.node-group').classed('node-group--selected', function () {
       const d = d3.select(this).datum();
-      return state.selectedNodeId && d && d.id === state.selectedNodeId;
+      return d?.id && state.selectedNodeIds.has(d.id);
     });
+    d3.selectAll('.node-group').classed('node-group--boundary', function () {
+      const d = d3.select(this).datum();
+      return d?.id && state.selectedNodeIds.has(d.id);
+    });
+    setPulseNode(state.pulseNodeId);
     d3.selectAll('.link-group').classed('link-group--selected', function () {
       const d = d3.select(this).select('.link-core').datum();
       return bundle && d && (d.id === bundle.id || d.to?.id === bundle.id);
     });
+
+    const whipNodes = selectedWhipNodes();
+    const anchorNode = whipHostNode();
+    if (whipNodes.length && anchorNode) {
+      showWhipFloat(anchorNode, whipNodes);
+    } else {
+      hideWhipFloat();
+    }
   }
 
   function closeModal() {
@@ -2830,7 +3676,7 @@ git reset --hard ${hash}`;
 
   function resolveTooltipAnchor(node, anchorRect) {
     if (anchorRect && anchorRect.width > 0 && anchorRect.height > 0) return anchorRect;
-    const hit = findNodeGroupEl(node.id)?.querySelector('.node-hit:not(.node-hit--folder)');
+    const hit = findNodeGroupEl(node.id)?.querySelector('.node-hit');
     if (hit) return hit.getBoundingClientRect();
     return null;
   }
@@ -2838,6 +3684,7 @@ git reset --hard ${hash}`;
   function showTooltipForNode(node, anchorRect) {
     const files = node.files || [node.filePath];
     const ver = formatDisplayVersion(node.displayColumn ?? node.graphX);
+    const subj = commitSubjectForNode(node);
     const fileLine = node.isForkAnchor
       ? `主泳道在此处分叉 → ⎇ ${node.branchName || 'branch'}`
       : node.isMergeAnchor
@@ -2852,14 +3699,17 @@ git reset --hard ${hash}`;
             return `⎇ ${seg?.name || 'branch'} · 从主泳道 ${forkLabel} 分出`;
           })()
           : node.isFolderAggregate
-        ? `${node.label} · ${files.length} file${files.length > 1 ? 's' : ''}`
-        : files[0];
+            ? (node.lanePath === ROOT_BUCKET ? '(root)/' : (node.lanePath || node.label))
+            : files[0];
     const foot = node.isForkAnchor
       ? '从该版本列分出'
       : node.isMergeAnchor
         ? '沿分支泳道合入该版本列'
-        : '单击选中 · 双击 rollback';
+        : node.isFolderAggregate
+          ? '单击选中文件夹边界 · 双击详情 · 点小马鞭复制'
+          : '单击切换选中 · 双击详情 · 点小马鞭复制';
     const accent = node.lane?.color || '#6d7ce8';
+    const verLine = subj ? `${ver} · ${subj}` : ver;
     if (!els.tooltip) return;
     els.tooltip.removeAttribute('hidden');
     els.tooltip.classList.add('is-open');
@@ -2867,10 +3717,9 @@ git reset --hard ${hash}`;
     els.tooltip.style.setProperty('--tooltip-accent', accent);
     els.tooltip.innerHTML = `
       <div class="tooltip__head">
-        <span class="tooltip__ver">${escapeHtml(ver)}</span>
-        <span class="tooltip__hash">${escapeHtml(node.hash.slice(0, 7))}</span>
+        <span class="tooltip__ver">${escapeHtml(verLine)}</span>
       </div>
-      <div class="tooltip__meta">${escapeHtml(node.author)} · ${escapeHtml(node.date)}</div>
+      <div class="tooltip__meta">${escapeHtml(node.author)} · ${escapeHtml(node.date)}${subj ? '' : ` · ${escapeHtml(node.hash.slice(0, 7))}`}</div>
       <div class="tooltip__file">${escapeHtml(fileLine)}</div>
       <div class="tooltip__foot">${escapeHtml(foot)}</div>
     `;
@@ -2891,6 +3740,20 @@ git reset --hard ${hash}`;
     d3.selectAll('.node-group--hover').classed('node-group--hover', false);
   }
 
+  function bindFolderNodePointer(g, node) {
+    g.style('pointer-events', 'all');
+    g.on('pointerenter.tooltip', () => {
+      g.classed('node-group--hover', true);
+      const hit = g.select('.node-hit').node();
+      const rect = hit instanceof Element ? hit.getBoundingClientRect() : null;
+      showTooltipForNode(node, rect);
+    });
+    g.on('pointerleave.tooltip', () => {
+      g.classed('node-group--hover', false);
+      hideTooltip();
+    });
+  }
+
   function bindFileNodePointer(g, node) {
     g.style('pointer-events', 'all');
     g.on('pointerenter.tooltip', (ev) => {
@@ -2907,6 +3770,7 @@ git reset --hard ${hash}`;
   }
 
   let suppressOutsideClick = false;
+  let nodeClickTimer = null;
 
   function initGraphViewportEvents() {
     if (els.graphViewport.dataset.hwBound) return;
@@ -2917,7 +3781,11 @@ git reset --hard ${hash}`;
       if (!picked) return;
       suppressOutsideClick = true;
       e.stopPropagation();
-      onFileNodeClick({ currentTarget: picked.hit }, picked.node);
+      if (nodeClickTimer) clearTimeout(nodeClickTimer);
+      nodeClickTimer = setTimeout(() => {
+        nodeClickTimer = null;
+        onFileNodeClick(e, picked.node);
+      }, 240);
     };
 
     els.graphViewport.addEventListener('click', onGraphClick);
@@ -2926,8 +3794,13 @@ git reset --hard ${hash}`;
     els.graphViewport.addEventListener('dblclick', (e) => {
       const picked = pickFileNodeFromPointer(e);
       if (!picked) return;
+      if (nodeClickTimer) {
+        clearTimeout(nodeClickTimer);
+        nodeClickTimer = null;
+      }
       e.preventDefault();
       e.stopPropagation();
+      suppressOutsideClick = true;
       openNodeModal(picked.node);
     });
   }
@@ -2944,6 +3817,7 @@ git reset --hard ${hash}`;
       document.body.removeChild(ta);
     }
     if (btn) {
+      if (btn.classList.contains('hw-whip-btn')) return;
       const orig = btn.textContent;
       btn.textContent = '✓';
       btn.classList.add('copied');
@@ -2994,12 +3868,8 @@ git reset --hard ${hash}`;
       state.pulseNodeId = null;
       state.graphZoom = 1;
       if (els.zoomLabel) els.zoomLabel.textContent = '100%';
-      if (isPluginHost()) {
-        if (savedExpanded?.size) {
-          savedExpanded.forEach((p) => state.expandedPaths.add(p));
-        } else {
-          seedPluginExpandedPaths(getLaneSourceFiles(parsed));
-        }
+      if (isPluginHost() && savedExpanded?.size) {
+        savedExpanded.forEach((p) => state.expandedPaths.add(p));
       }
       state.animateNext = true;
       graphRenderCtx = null;
@@ -3087,6 +3957,9 @@ git reset --hard ${hash}`;
     state.catalog = null;
     state.laneSliceCache = null;
     state.rawLogText = null;
+    state.boundaryFiles.clear();
+    state.selectedNodeIds.clear();
+    syncBoundaryBar();
     graphRenderCtx = null;
     d3.select(els.graphSvg).selectAll('*').remove();
     els.fileRailInner.innerHTML = '';
@@ -3108,7 +3981,7 @@ git reset --hard ${hash}`;
   });
 
   els.cmdChip?.addEventListener('click', () => {
-    copyText('git log --all -100 --name-only --pretty=format:"%H|%P|%D|%an|%ad"', els.cmdChip);
+    copyText('git log --all -100 --name-only --pretty=format:"%H|%P|%D|%an|%ad|%s"', els.cmdChip);
   });
 
   if (els.zoomLabel) els.zoomLabel.textContent = '100%';
@@ -3126,6 +3999,15 @@ git reset --hard ${hash}`;
   } catch { /* ignore */ }
   syncLaneLayoutButton();
   els.btnLaneLayout?.addEventListener('click', toggleLaneLayout);
+
+  state.whipSoundMuted = loadWhipSoundMuted();
+  try { localStorage.removeItem('horsewhip:whip-icon-image'); } catch { /* legacy cleanup */ }
+  void loadWhipCrackAudio();
+  syncWhipSoundMuteButton();
+  els.btnWhipSound?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleWhipSoundMute();
+  });
 
   els.fileRail?.addEventListener('scroll', () => {
     if (scrollSync) return;
@@ -3152,6 +4034,39 @@ git reset --hard ${hash}`;
   els.btnZoomIn?.addEventListener('click', () => nudgeZoom(CONFIG.ZOOM_STEP));
   els.btnZoomOut?.addEventListener('click', () => nudgeZoom(1 / CONFIG.ZOOM_STEP));
   els.btnLoadMoreCommits?.addEventListener('click', loadMoreCommits);
+
+  function ensureBoundaryWhipButton() {
+    const btn = els.btnBoundaryCopy;
+    if (!btn) return;
+    btn.classList.add('hw-whip-btn');
+    btn.title = '复制约束';
+    btn.setAttribute('aria-label', '复制约束');
+    mountWhipIcon(btn, 'hw-whip-btn__svg');
+  }
+
+  function wireBoundaryBar() {
+    ensureBoundaryWhipButton();
+    if (els.btnBoundaryChat && !isPluginHost()) {
+      els.btnBoundaryChat.hidden = true;
+    }
+    els.btnBoundaryClear?.addEventListener('click', () => clearNodeSelection());
+    els.btnBoundaryCopy?.addEventListener('click', () => {
+      const nodes = selectedWhipNodes();
+      if (!nodes.length) return;
+      crackWhipOnSelection(nodes, els.btnBoundaryCopy);
+    });
+    els.btnBoundaryChat?.addEventListener('click', () => {
+      const text = buildBoundaryPrompt();
+      if (!text) return;
+      if (window.HorsewhipPluginBridge?.insertBoundaryToChat) {
+        window.HorsewhipPluginBridge.insertBoundaryToChat(text);
+      } else {
+        copyText(text, els.btnBoundaryChat);
+      }
+    });
+    syncBoundaryBar();
+  }
+  wireBoundaryBar();
 
   els.modalClose.addEventListener('click', closeModal);
   els.modalBackdrop.addEventListener('click', (e) => {
@@ -3201,12 +4116,15 @@ git reset --hard ${hash}`;
       return;
     }
     if (e.target.closest('#tooltip')) return;
+    if (e.target.closest('#hw-whip-float')) return;
     if (els.graphSvg?.contains(e.target)) return;
     if (!e.target.closest('.link-segment') && !e.target.closest('#link-panel')) {
       hideTooltip();
       if (!els.modalBackdrop.hidden) return;
       state.selectedLink = null;
-      state.selectedNodeId = null;
+      state.selectedNodeIds.clear();
+      state.lastSelectedNodeId = null;
+      state.boundaryFiles.clear();
       els.linkPanel.hidden = true;
       updateSelectionVisuals();
     }
@@ -3225,12 +4143,12 @@ git reset --hard ${hash}`;
       if (!isPluginHost()) return;
       state.pluginDemoAllFiles = false;
       state.workspaceFiles = Array.isArray(paths) ? paths : [];
-      if (state.parsed && state.expandedPaths.size === 0) {
-        seedPluginExpandedPaths(getLaneSourceFiles(state.parsed));
-      }
       if (state.parsed) scheduleRenderFromState();
     },
     getModalNode: () => state.modalNode,
+    getBoundaryFiles: getBoundaryFilesList,
+    buildBoundaryPrompt,
+    clearNodeSelection,
   };
 
 })();

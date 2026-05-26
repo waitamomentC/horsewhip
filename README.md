@@ -1,4 +1,4 @@
-# 马鞭 · Horsewhip
+# Horsewhip-AI边界收束可视化git工具
 
 > **For that horse that keeps trampling your codebase**  
 > 版本时间线 · AI 文件边界约束 · 回滚命令
@@ -29,6 +29,8 @@ python3 -m http.server 8080
 ```
 
 需联网（D3.js CDN + 字体）。
+
+**鞭子音效**：将短促「啪」声放到 [`media/whip-crack.mp3`](./media/whip-crack.mp3)（或 `.wav` / `.ogg`），见 [`media/README.md`](./media/README.md)。未放置时使用内置合成音。
 
 1. 标题栏点 **demo** 或 **paste** → **generate**
 2. **V1 贴画布左缘** · 默认**顶层 folder 聚合**（`src/`、`docs/`、`(root)` 等，▸ 展开）

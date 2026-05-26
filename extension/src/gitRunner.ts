@@ -3,7 +3,7 @@ import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
 
-const LOG_FORMAT = '%H|%P|%D|%an|%ad';
+const LOG_FORMAT = '%H|%P|%D|%an|%ad|%s';
 const LOG_ARGS = ['log', '--all', '--name-only', `--pretty=format:${LOG_FORMAT}`];
 
 export async function fetchGitLog(cwd: string, maxCount = 100): Promise<string> {

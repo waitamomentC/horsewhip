@@ -18,6 +18,8 @@ import { checkWorkspace, getWorkspaceFolderName, getWorkspaceRoot } from './work
 import { buildGateHtml, buildTimelineHtml } from './webviewHtml';
 import { watchGitRepository } from './gitWatch';
 import { WorkspaceTerminal } from './workspaceTerminal';
+import { setBoundaryAllowlist } from './boundaryAllowlist';
+import { insertTextIntoChat } from './chatInsert';
 
 type WebviewInbound =
   | { type: 'ready' }
@@ -36,7 +38,9 @@ type WebviewInbound =
   | { type: 'terminalInput'; data: string }
   | { type: 'terminalResize'; cols: number; rows: number }
   | { type: 'gateOpenFolder' }
-  | { type: 'gateGitInit' };
+  | { type: 'gateGitInit' }
+  | { type: 'setBoundaryAllowlist'; files: string[] }
+  | { type: 'insertBoundaryToChat'; text: string };
 
 export class HorsewhipTimeline {
   private workspaceRoot: string | undefined;
@@ -169,7 +173,7 @@ export class HorsewhipTimeline {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      vscode.window.showErrorMessage(`马鞭：读取 git log 失败 — ${msg}`);
+      vscode.window.showErrorMessage(`Horsewhip: failed to read git log — ${msg}`);
     } finally {
       this.gitReloadInFlight = false;
     }
@@ -236,7 +240,7 @@ export class HorsewhipTimeline {
     this.webview.postMessage({ type: 'commitStarted' });
     try {
       await gitCommitAll(cwd, message);
-      vscode.window.showInformationMessage(`马鞭：已提交 — ${message}`);
+      vscode.window.showInformationMessage(`Horsewhip: committed — ${message}`);
       await this.reloadGitTimeline({ offerRemote: true });
       this.webview.postMessage({ type: 'commitDone', message });
     } catch (err) {
@@ -330,7 +334,7 @@ export class HorsewhipTimeline {
 
       this.webview.postMessage({ type: 'remotePublishDone', remoteUrl, htmlUrl });
       await this.pushRepoStatus();
-      vscode.window.showInformationMessage(`马鞭：已发布到 ${remoteUrl}`);
+      vscode.window.showInformationMessage(`Horsewhip: published to ${remoteUrl}`);
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
       this.webview.postMessage({ type: 'remotePublishError', error: text });
@@ -452,6 +456,21 @@ export class HorsewhipTimeline {
       } catch (err) {
         const text = err instanceof Error ? err.message : String(err);
         vscode.window.showErrorMessage(`reset 失败：${text}`);
+      }
+      return;
+    }
+    if (msg.type === 'setBoundaryAllowlist') {
+      setBoundaryAllowlist(Array.isArray(msg.files) ? msg.files : []);
+      return;
+    }
+    if (msg.type === 'insertBoundaryToChat') {
+      const text = (msg.text ?? '').trim();
+      if (!text) return;
+      const result = await insertTextIntoChat(text);
+      if (result === 'chat') {
+        vscode.window.showInformationMessage('Horsewhip: constraint inserted into Chat — add your task description and send');
+      } else {
+        vscode.window.showInformationMessage('Horsewhip: constraint copied to clipboard — paste into Chat');
       }
     }
   }
