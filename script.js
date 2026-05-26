@@ -28,6 +28,8 @@
   };
 
   const ROOT_BUCKET = '__root__';
+  /** experiment/per-folder-version: each folder swimlane has its own V1, V2… */
+  const PER_LANE_VERSION = true;
   const LANE_LAYOUT_KEY = 'hw-lane-layout';
   const WHIP_SOUND_MUTE_KEY = 'horsewhip:whip-sound-muted';
   /** Drop your file at media/whip-crack.mp3 (or .wav / .ogg); see media/README.md */
@@ -463,10 +465,84 @@
     return Math.abs(a - b) < 0.001;
   }
 
-  /** User-facing V label — integer upload index (displayColumn / versionIndex). */
+  /** Global commit column on the timeline ruler (upload order). */
+  function formatGlobalCommitColumn(column) {
+    if (column == null || Number.isNaN(column)) return 'C?';
+    return `C${Math.round(Number(column))}`;
+  }
+
+  /** Per-folder swimlane version (only bumps when that lane is touched). */
+  function formatLaneVersion(laneV) {
+    if (laneV == null || Number.isNaN(laneV)) return 'V?';
+    return `V${Math.round(Number(laneV))}`;
+  }
+
+  /** @deprecated alias — global commit column */
   function formatDisplayVersion(column) {
-    if (column == null || Number.isNaN(column)) return 'V?';
-    return `V${Math.round(Number(column))}`;
+    return PER_LANE_VERSION ? formatGlobalCommitColumn(column) : formatLaneVersion(column);
+  }
+
+  function formatNodeVersion(node) {
+    if (PER_LANE_VERSION && node?.laneVersion != null) return formatLaneVersion(node.laneVersion);
+    return formatDisplayVersion(node?.displayColumn ?? node?.graphX);
+  }
+
+  function nodeVersionTooltipLine(node) {
+    const col = node?.displayColumn ?? node?.graphX;
+    if (!PER_LANE_VERSION) return formatNodeVersion(node);
+    const global = formatGlobalCommitColumn(col);
+    const local = node?.laneVersion != null ? formatLaneVersion(node.laneVersion) : null;
+    return local ? `${local} · 上传 ${global}` : global;
+  }
+
+  function assignPerLaneVersions(parsed, allFiles) {
+    if (!PER_LANE_VERSION) return;
+    const baseLanes = collectVisibleLanes(allFiles).filter((l) => !l.isHeader);
+    const counters = new Map();
+    const branchPaths = [];
+
+    baseLanes.forEach((lane) => counters.set(lane.path, 0));
+    (parsed.branchSegments || []).forEach((seg) => {
+      baseLanes.forEach((lane) => {
+        if (!segmentTouchesLane(seg, lane)) return;
+        const bp = `${lane.path}#⎇${seg.id}`;
+        counters.set(bp, 0);
+        branchPaths.push({ path: bp, seg, parent: lane });
+      });
+    });
+
+    parsed.commits.forEach((commit) => {
+      commit.laneVersions = {};
+      baseLanes.forEach((lane) => {
+        const matched = commit.files.filter((f) => fileMatchesLane(f, lane));
+        if (!matched.length) return;
+        const next = (counters.get(lane.path) || 0) + 1;
+        counters.set(lane.path, next);
+        commit.laneVersions[lane.path] = next;
+      });
+      branchPaths.forEach(({ path, seg, parent }) => {
+        if (!seg.commitSet.has(commit.hash)) return;
+        if (!commit.files.some((f) => fileMatchesLane(f, parent))) return;
+        const next = (counters.get(path) || 0) + 1;
+        counters.set(path, next);
+        commit.laneVersions[path] = next;
+      });
+    });
+
+    parsed.laneVersionAtHead = Object.fromEntries(counters);
+  }
+
+  function laneVersionAtHead(parsed, lanePath) {
+    return parsed?.laneVersionAtHead?.[lanePath] ?? 0;
+  }
+
+  function laneForkLaneVersion(lane, seg, parsed) {
+    const forkCommit = parsed.commitMap[seg.forkHash];
+    if (!forkCommit) return 1;
+    if (PER_LANE_VERSION && forkCommit.laneVersions?.[lane.path] != null) {
+      return forkCommit.laneVersions[lane.path];
+    }
+    return forkCommit.versionIndex ?? forkCommit.displayColumn ?? 1;
   }
 
   function truncateSubject(text, max = 16) {
@@ -484,7 +560,7 @@
   }
 
   function versionLabelWithSubject(parsed, columnV, maxSubject = 14) {
-    const base = formatDisplayVersion(columnV);
+    const base = PER_LANE_VERSION ? formatGlobalCommitColumn(columnV) : formatDisplayVersion(columnV);
     const headV = headMainlineVersion(parsed) || 0;
     if (!parsed || columnV > headV) return base;
     const subj = truncateSubject(commitAtMainlineVersion(parsed, columnV)?.subject, maxSubject);
@@ -1335,11 +1411,12 @@
 
   /** Lane list only — no commit walk, no nodes/links. */
   function buildLaneCatalog(parsed) {
+    const allFiles = getLaneSourceFiles(parsed);
+    assignPerLaneVersions(parsed, allFiles);
     const hi = headIndex(parsed);
     const head = headCommit(parsed);
     const focusGraphX = resolveFocusGraphX(parsed);
     const headMainlineV = headMainlineVersion(parsed);
-    const allFiles = getLaneSourceFiles(parsed);
     const baseLanes = collectVisibleLanes(allFiles);
     const withBranches = insertBranchLanes(baseLanes, parsed.branchSegments || []);
     const lanes = assignLaneColors(withBranches);
@@ -1356,17 +1433,34 @@
     };
   }
 
-  function makeVersionStepNode(lane, columnV) {
+  function makeVersionStepNode(lane, globalColumn, laneVersion) {
     return {
-      id: `step:${lane.path}:${columnV}`,
+      id: `step:${lane.path}:${globalColumn}`,
       isVersionStep: true,
-      displayColumn: columnV,
-      graphX: columnV,
+      displayColumn: globalColumn,
+      graphX: globalColumn,
+      laneVersion,
       lanePath: lane.path,
       laneIndex: lane.laneIndex,
       lane,
       label: lane.label,
     };
+  }
+
+  function buildLaneVersionEvents(lane, parsed) {
+    const events = [];
+    parsed.commits.forEach((commit) => {
+      if (!commitInColumnWindow(commit)) return;
+      if (!commitAppliesToLane(commit, lane, parsed)) return;
+      const laneV = commit.laneVersions?.[lane.path];
+      if (laneV == null) return;
+      events.push({
+        laneVersion: laneV,
+        globalColumn: commit.displayColumn,
+        commit,
+      });
+    });
+    return events;
   }
 
   /** Integer columns V{vStart}…V{vEnd} in viewport (lane track / step nodes). */
@@ -1387,48 +1481,86 @@
     return { graphX: col, displayColumn: col, node };
   }
 
-  /** Lane track + step icons; parent skips branch gap, branch starts at first branch commit. */
+  /** Lane track: per-folder V bumps only on touches; idle dash when folder unchanged across uploads. */
   function addLaneVersionTrace(lane, nodes, links, parsed, bundlesOnLane) {
     if (lane.isHeader) return;
-    const skipCols = laneStepSkipColumns(lane, parsed, bundlesOnLane);
-    const ranges = lane.isBranchLane
-      ? [branchLaneTrackRange(lane, parsed, bundlesOnLane)]
-      : parentLaneTrackRanges(lane, parsed);
 
-    ranges.forEach((range) => {
-      const { vStart, vEnd, timeline } = laneTrackTimeline(
-        range.vStart,
-        range.vEnd,
-        state.visibleColumnWindow,
-      );
-      if (vEnd < vStart) return;
-
-      links.push({
-        kind: 'lane-track',
-        vStart,
-        vEnd,
-        lane,
-        laneIndex: lane.laneIndex,
-        active: false,
-      });
-
-      const cols = timeline.filter((columnV) => !skipCols.has(columnV));
-      cols.forEach((columnV) => {
-        if (nodeOnLaneAtColumn(nodes, lane.path, columnV)) return;
-        nodes.push(makeVersionStepNode(lane, columnV));
-      });
-
-      for (let i = 1; i < cols.length; i += 1) {
+    if (!PER_LANE_VERSION) {
+      const skipCols = laneStepSkipColumns(lane, parsed, bundlesOnLane);
+      const ranges = lane.isBranchLane
+        ? [branchLaneTrackRange(lane, parsed, bundlesOnLane)]
+        : parentLaneTrackRanges(lane, parsed);
+      ranges.forEach((range) => {
+        const { vStart, vEnd, timeline } = laneTrackTimeline(
+          range.vStart,
+          range.vEnd,
+          state.visibleColumnWindow,
+        );
+        if (vEnd < vStart) return;
         links.push({
-          kind: 'lane-trace',
-          from: traceAnchorAtColumn(nodes, lane, cols[i - 1]),
-          to: traceAnchorAtColumn(nodes, lane, cols[i]),
+          kind: 'lane-track',
+          vStart,
+          vEnd,
           lane,
           laneIndex: lane.laneIndex,
           active: false,
         });
+        const cols = timeline.filter((columnV) => !skipCols.has(columnV));
+        cols.forEach((columnV) => {
+          if (nodeOnLaneAtColumn(nodes, lane.path, columnV)) return;
+          nodes.push(makeVersionStepNode(lane, columnV, columnV));
+        });
+        for (let i = 1; i < cols.length; i += 1) {
+          links.push({
+            kind: 'lane-trace',
+            from: traceAnchorAtColumn(nodes, lane, cols[i - 1]),
+            to: traceAnchorAtColumn(nodes, lane, cols[i]),
+            lane,
+            laneIndex: lane.laneIndex,
+            active: false,
+          });
+        }
+      });
+      return;
+    }
+
+    const events = buildLaneVersionEvents(lane, parsed);
+    if (!events.length) return;
+
+    const headCol = headColumn(parsed);
+    events.forEach((ev, i) => {
+      if (!columnInWindow(ev.globalColumn, state.visibleColumnWindow)) return;
+      if (!nodeOnLaneAtColumn(nodes, lane.path, ev.globalColumn)) {
+        nodes.push(makeVersionStepNode(lane, ev.globalColumn, ev.laneVersion));
+      }
+      if (i > 0) {
+        const prev = events[i - 1];
+        links.push({
+          kind: 'lane-trace',
+          from: traceAnchorAtColumn(nodes, lane, prev.globalColumn),
+          to: traceAnchorAtColumn(nodes, lane, ev.globalColumn),
+          lane,
+          laneIndex: lane.laneIndex,
+          active: false,
+          laneVersion: ev.laneVersion,
+        });
       }
     });
+
+    const last = events[events.length - 1];
+    if (last.globalColumn < headCol
+      && (columnInWindow(last.globalColumn, state.visibleColumnWindow)
+        || columnInWindow(headCol, state.visibleColumnWindow))) {
+      links.push({
+        kind: 'lane-idle',
+        from: traceAnchorAtColumn(nodes, lane, last.globalColumn),
+        to: { displayColumn: headCol, graphX: headCol, laneVersion: last.laneVersion },
+        lane,
+        laneIndex: lane.laneIndex,
+        heldVersion: last.laneVersion,
+        active: false,
+      });
+    }
   }
 
   function makeGraphNode(commit, lane, files, focusGraphX, head) {
@@ -1439,6 +1571,7 @@
       date: commit.date,
       subject: commit.subject || '',
       versionIndex: commit.versionIndex,
+      laneVersion: commit.laneVersions?.[lane.path] ?? null,
       globalIndex: commit.displayColumn,
       graphX: commit.displayColumn,
       displayColumn: commit.displayColumn,
@@ -1668,8 +1801,12 @@ ${lines}
 
   function constraintFolder(folderPath) {
     const label = folderPath === ROOT_BUCKET ? '仓库根目录/' : folderPath;
+    const lv = PER_LANE_VERSION && state.parsed ? laneVersionAtHead(state.parsed, folderPath) : 0;
+    const verHint = lv > 0
+      ? `\n该目录泳道版本：${formatLaneVersion(lv)}（仅在本目录有提交时递增；横轴 Cn 为全仓库上传序）。`
+      : '';
     return `【Horsewhip · 文件夹边界】
-本次任务只允许修改 ${label} 目录下的内容，不要创建/修改/删除该目录以外的任何路径。
+本次任务只允许修改 ${label} 目录下的内容，不要创建/修改/删除该目录以外的任何路径。${verHint}
 
 若必须改动其他目录，请先说明理由并等待确认后再继续。`;
   }
@@ -2357,6 +2494,14 @@ git reset --hard ${hash}`;
       .attr('fill', 'transparent')
       .style('pointer-events', 'all');
 
+    if (PER_LANE_VERSION && node.laneVersion != null) {
+      g.append('text')
+        .attr('class', 'node-lane-ver')
+        .attr('y', ICON_SIZE + 9)
+        .attr('text-anchor', 'middle')
+        .text(formatLaneVersion(node.laneVersion));
+    }
+
     bindFileNodePointer(g, node);
   }
 
@@ -2374,6 +2519,13 @@ git reset --hard ${hash}`;
       .datum(node);
 
     appendSvgLaneIcon(g, nodeIconKind(node), color, size);
+    if (PER_LANE_VERSION && node.laneVersion != null) {
+      g.append('text')
+        .attr('class', 'node-lane-ver node-lane-ver--step')
+        .attr('y', size + 7)
+        .attr('text-anchor', 'middle')
+        .text(formatLaneVersion(node.laneVersion));
+    }
   }
 
   /** Parent-lane dot where a branch forks off (when no commit node exists at fork column). */
@@ -2606,12 +2758,21 @@ git reset --hard ${hash}`;
     return 5 + depth * step;
   }
 
+  function fileRailTitle(lane) {
+    let tip = lane.path === ROOT_BUCKET ? '(root)' : lane.path;
+    if (PER_LANE_VERSION && state.parsed && !lane.isHeader) {
+      const lv = laneVersionAtHead(state.parsed, lane.path);
+      if (lv > 0) tip = `${tip} · 泳道 ${formatLaneVersion(lv)}`;
+    }
+    return tip;
+  }
+
   function appendFileRailRow(lane) {
     const row = document.createElement('div');
     if (lane.isBranchLane) {
       row.className = 'file-rail__item file-rail__item--branch';
       row.style.paddingLeft = `${fileRailIndent(lane.depth)}px`;
-      row.title = lane.path;
+      row.title = fileRailTitle(lane);
       const chev = document.createElement('span');
       chev.className = 'file-rail__chev';
       chev.textContent = '⎇';
@@ -2626,7 +2787,7 @@ git reset --hard ${hash}`;
     if (lane.inlineFolder && !isPluginHost()) {
       row.className = 'file-rail__item file-rail__item--file file-rail__item--folder-inline';
       row.style.paddingLeft = `${fileRailIndent(lane.depth)}px`;
-      row.title = lane.path;
+      row.title = fileRailTitle(lane);
       const chev = document.createElement('button');
       chev.type = 'button';
       chev.className = 'file-rail__chev file-rail__chev--collapse';
@@ -2670,7 +2831,7 @@ git reset --hard ${hash}`;
       ? (isPluginHost() ? lane.label : shortenFolderLabel(lane.label))
       : (isFlatLaneLayout() ? lane.path : (lane.path.split('/').pop() || lane.label));
     label.textContent = truncatePath(display);
-    row.title = lane.path === ROOT_BUCKET ? '(root)' : lane.path;
+    row.title = fileRailTitle(lane);
     if (lane.collapsed || lane.isHeader) {
       row.classList.add('file-rail__item--folder');
       row.appendChild(createRailIcon(lane));
@@ -2695,6 +2856,22 @@ git reset --hard ${hash}`;
         false,
         laneLine(x1, y, x2, y),
         null,
+        null,
+        link.lane.colorDim,
+        link.lane.colorDim,
+      );
+      return;
+    }
+    if (link.kind === 'lane-idle') {
+      const x1 = versionX(link.from.displayColumn ?? link.from.graphX);
+      const x2 = versionX(link.to.displayColumn ?? link.to.graphX);
+      const y = yScale(link.laneIndex);
+      appendLinkPath(
+        linkG,
+        'idle',
+        false,
+        laneLine(x1, y, x2, y),
+        link,
         null,
         link.lane.colorDim,
         link.lane.colorDim,
@@ -2971,7 +3148,8 @@ git reset --hard ${hash}`;
       const base = files > 0
         ? `${files} 个文件 · ${dirs} 个目录`
         : `${laneCount} 行`;
-      el.textContent = boundaryN > 0 ? `${base} · 边界 ${boundaryN}` : base;
+      const exp = PER_LANE_VERSION ? ' · 每夹V' : '';
+      el.textContent = boundaryN > 0 ? `${base} · 边界 ${boundaryN}${exp}` : `${base}${exp}`;
     } else {
       el.textContent = ws > 0 ? '目录已同步，等待 git 记录' : '同步工作区目录…';
     }
@@ -3145,7 +3323,7 @@ git reset --hard ${hash}`;
         .attr('x', vx)
         .attr('y', baseline - 9)
         .attr('text-anchor', 'middle')
-        .text(`V${v}`);
+        .text(PER_LANE_VERSION ? `C${v}` : `V${v}`);
 
       chromeG.append('circle')
         .attr('class', [
@@ -3229,7 +3407,7 @@ git reset --hard ${hash}`;
     state.modalNode = node;
     const files = node.files || [node.filePath];
     els.modalTitle.textContent = (() => {
-      const ver = formatDisplayVersion(node.displayColumn ?? node.graphX);
+      const ver = nodeVersionTooltipLine(node);
       const subj = commitSubjectForNode(node);
       return subj ? `${ver} · ${subj}` : `${ver} · ${node.hash.slice(0, 7)}`;
     })();
@@ -3683,7 +3861,7 @@ git reset --hard ${hash}`;
 
   function showTooltipForNode(node, anchorRect) {
     const files = node.files || [node.filePath];
-    const ver = formatDisplayVersion(node.displayColumn ?? node.graphX);
+    const ver = nodeVersionTooltipLine(node);
     const subj = commitSubjectForNode(node);
     const fileLine = node.isForkAnchor
       ? `主泳道在此处分叉 → ⎇ ${node.branchName || 'branch'}`
@@ -3693,8 +3871,11 @@ git reset --hard ${hash}`;
           ? (() => {
             const seg = node.lane.branchSegment;
             const forkC = seg && state.parsed?.commitMap[seg.forkHash];
-            const forkLabel = forkC
-              ? formatDisplayVersion(forkC.versionIndex)
+            const parentPath = node.lane?.parentLanePath;
+            const forkLabel = forkC && parentPath
+              ? (PER_LANE_VERSION && forkC.laneVersions?.[parentPath] != null
+                ? formatLaneVersion(forkC.laneVersions[parentPath])
+                : formatGlobalCommitColumn(forkC.displayColumn))
               : '?';
             return `⎇ ${seg?.name || 'branch'} · 从主泳道 ${forkLabel} 分出`;
           })()
@@ -3702,9 +3883,9 @@ git reset --hard ${hash}`;
             ? (node.lanePath === ROOT_BUCKET ? '(root)/' : (node.lanePath || node.label))
             : files[0];
     const foot = node.isForkAnchor
-      ? '从该版本列分出'
+      ? (PER_LANE_VERSION ? '从该文件夹版本处分出（横轴为上传 Cn）' : '从该版本列分出')
       : node.isMergeAnchor
-        ? '沿分支泳道合入该版本列'
+        ? (PER_LANE_VERSION ? '沿分支泳道合入（横轴为上传 Cn）' : '沿分支泳道合入该版本列')
         : node.isFolderAggregate
           ? '单击选中文件夹边界 · 双击详情 · 点小马鞭复制'
           : '单击切换选中 · 双击详情 · 点小马鞭复制';
@@ -4131,6 +4312,8 @@ git reset --hard ${hash}`;
   });
 
   /** VS Code / Cursor webview entry (see extension/media/panel-bridge.js). */
+  if (PER_LANE_VERSION) document.documentElement.classList.add('hw-per-lane-v');
+
   window.HorsewhipApp = {
     loadLog: loadAndRender,
     loadDemo() {

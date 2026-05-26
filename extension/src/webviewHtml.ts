@@ -342,7 +342,7 @@ export function buildTimelineHtml(
     .remote-wizard__panel[hidden] { display: none !important; }
   </style>
 </head>
-<body class="hw-plugin">
+<body class="hw-plugin hw-per-lane-v">
   <div class="plugin-bar">
     <strong>Horsewhip</strong>
     <span>工作区 <code>${workspaceLabel}</code></span>

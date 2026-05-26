@@ -1386,3 +1386,27 @@ body.hw-plugin .hw-copy-toast { bottom: 40px; }
   .link-flow { stroke-dasharray: none; opacity: 0.4; }
   .node-pulse { display: none; }
 }
+
+/* experiment/per-folder-version */
+.hw-per-lane-v .link-idle .link-core {
+  stroke-dasharray: 5 6;
+  opacity: 0.42;
+}
+
+.hw-per-lane-v .node-lane-ver {
+  fill: #9aa3b2;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 8px;
+  font-weight: 600;
+  pointer-events: none;
+  user-select: none;
+}
+
+.hw-per-lane-v .node-lane-ver--step {
+  font-size: 7px;
+  opacity: 0.85;
+}
+
+.hw-per-lane-v .version-ruler__label {
+  font-size: 9px;
+}
