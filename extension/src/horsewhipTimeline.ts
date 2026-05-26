@@ -1,6 +1,16 @@
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { fetchGitLog, gitCheckoutFile, gitResetHard, gitInit, gitCommitAll, getGitConfig, setLocalGitConfig } from './gitRunner';
+import {
+  augmentLogWithBranchTips,
+  fetchGitBranches,
+  fetchGitLog,
+  gitCheckoutFile,
+  gitResetHard,
+  gitInit,
+  gitCommitAll,
+  getGitConfig,
+  setLocalGitConfig,
+} from './gitRunner';
 import {
   createRepoWithGh,
   createRepoWithToken,
@@ -153,12 +163,19 @@ export class HorsewhipTimeline {
     offerRemote?: boolean;
   } = {}): Promise<void> {
     if (!this.workspaceRoot || this.gitReloadInFlight) return;
-    const maxCount = options.maxCount ?? 100;
+    const maxCount = options.maxCount ?? 200;
     this.gitReloadInFlight = true;
     try {
       const paths = await collectWorkspaceRelPaths();
       this.webview.postMessage({ type: 'setWorkspaceFiles', paths });
-      const log = await fetchGitLog(this.workspaceRoot, maxCount);
+      const branches = await fetchGitBranches(this.workspaceRoot);
+      const status = await getRepoStatus(this.workspaceRoot);
+      this.webview.postMessage({
+        type: 'setGitBranches',
+        branches,
+        currentBranch: status.branch,
+      });
+      let log = await fetchGitLog(this.workspaceRoot, maxCount);
       if (!log) {
         const authorName = await getGitConfig(this.workspaceRoot, 'user.name');
         const authorEmail = await getGitConfig(this.workspaceRoot, 'user.email');
@@ -166,6 +183,7 @@ export class HorsewhipTimeline {
         await this.pushRepoStatus();
         return;
       }
+      log = await augmentLogWithBranchTips(this.workspaceRoot, log, branches);
       this.webview.postMessage({ type: 'loadLog', log });
       await this.pushRepoStatus();
       if (options.offerRemote) {

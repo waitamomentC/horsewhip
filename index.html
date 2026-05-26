@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>马鞭 · Horsewhip</title>
-  <meta name="description" content="Git version timeline · AI file boundary constraints">
+  <meta name="description" content="AI file boundary visualization — not a Git graph. Whip to constrain, fuse branches back to main.">
   <meta name="horsewhip-whip-audio" content="media/whip-crack.mp3">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -44,6 +44,7 @@
         <circle class="logo-spark logo-spark--c" cx="22" cy="14" r="0.55" fill="#a5b4fc" opacity="0.75"/>
       </svg>
       <h1 class="header__title">马鞭 <span class="header__mono">horsewhip</span></h1>
+      <p class="header__tagline">AI 边界尺 · 不是 Git 图</p>
     </div>
 
     <div class="header__tools">
@@ -86,6 +87,19 @@
 
   <main class="stage" id="stage">
     <aside class="file-rail" id="file-rail" aria-label="Files">
+      <div class="hw-branch-rail" id="branch-rail" hidden aria-label="Git branches"></div>
+      <div class="hw-fuse-bar" id="hw-fuse-bar" hidden>
+        <div class="hw-fuse-bar__info">
+          <strong class="hw-fuse-bar__title">分支融合</strong>
+          <span class="hw-fuse-bar__count" id="hw-fuse-count"></span>
+          <span class="hw-fuse-bar__names" id="hw-fuse-names"></span>
+        </div>
+        <div class="hw-fuse-bar__actions">
+          <button type="button" class="btn btn--compact" id="btn-fuse-clear">清空</button>
+          <button type="button" class="btn btn--compact hw-whip-btn" id="btn-fuse-copy" title="复制融合任务" aria-label="复制融合任务"></button>
+          <button type="button" class="btn btn--compact btn--solid" id="btn-fuse-chat">AI 融合 → 主泳道</button>
+        </div>
+      </div>
       <div class="file-rail__inner" id="file-rail-inner"></div>
     </aside>
     <section class="graph-viewport" id="graph-viewport" tabindex="0">
@@ -93,15 +107,15 @@
         <svg id="graph-svg" class="graph-svg" role="img" aria-label="Version timeline"></svg>
       </div>
       <div class="graph-empty" id="graph-empty">
-        <p class="graph-empty__title">马鞭 timeline</p>
-        <p class="graph-empty__desc">demo 或 paste → generate</p>
+        <p class="graph-empty__title">划定边界，再让 AI 动手</p>
+        <p class="graph-empty__desc">demo 或 paste → generate · 点节点划边界 · 分支栏多选可融合回主泳道</p>
       </div>
       <div class="graph-hint" id="graph-hint" hidden>
-        <span class="graph-hint__item">首屏 HEAD</span>
+        <span class="graph-hint__item">点节点 → 边界</span>
         <span class="graph-hint__sep">·</span>
-        <span class="graph-hint__item">悬停圆点看标签</span>
+        <span class="graph-hint__item">分支多选 → 融合</span>
         <span class="graph-hint__sep">·</span>
-        <span class="graph-hint__item">滚轮左右</span>
+        <span class="graph-hint__item">滚轮平移</span>
         <span class="graph-hint__sep">·</span>
         <span class="graph-hint__item">⌘滚轮缩放</span>
       </div>

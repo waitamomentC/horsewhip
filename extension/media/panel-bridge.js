@@ -316,6 +316,9 @@
     if (msg.type === 'setWorkspaceFiles') {
       window.HorsewhipApp.setWorkspaceFiles(msg.paths);
     }
+    if (msg.type === 'setGitBranches') {
+      window.HorsewhipApp.setGitBranches(msg.branches, msg.currentBranch);
+    }
     if (window.HorsewhipRemoteWizard) {
       window.HorsewhipRemoteWizard.onMessage(msg);
     }

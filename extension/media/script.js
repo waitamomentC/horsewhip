@@ -78,6 +78,12 @@
     focusedFilePath: null,
     viewportAnimGeneration: 0,
     whipSoundMuted: false,
+    /** Plugin: all local branches from git for-each-ref. */
+    gitBranches: [],
+    currentGitBranch: '',
+    highlightBranchName: null,
+    /** Multi-branch pick for AI fusion → main. */
+    selectedBranchNames: new Set(),
   };
 
   let whipAudioContext = null;
@@ -115,7 +121,15 @@
     statFiles: $('#stat-files'),
     fileFilter: $('#file-filter'),
     btnLaneLayout: $('#btn-lane-layout'),
+    stage: $('#stage'),
     fileRail: $('#file-rail'),
+    branchRail: $('#branch-rail'),
+    fuseBar: $('#hw-fuse-bar'),
+    fuseCount: $('#hw-fuse-count'),
+    fuseNames: $('#hw-fuse-names'),
+    btnFuseClear: $('#btn-fuse-clear'),
+    btnFuseCopy: $('#btn-fuse-copy'),
+    btnFuseChat: $('#btn-fuse-chat'),
     fileRailInner: $('#file-rail-inner'),
     graphViewport: $('#graph-viewport'),
     graphScroll: $('#graph-scroll'),
@@ -318,9 +332,123 @@
     return map;
   }
 
+  function branchRefNames() {
+    const names = new Set();
+    (state.gitBranches || []).forEach((b) => { if (b.name) names.add(b.name); });
+    return names;
+  }
+
+  function normalizeRefName(raw) {
+    return String(raw || '').replace(/^origin\//, '').replace(/^HEAD -> /, '').trim();
+  }
+
   function hasBranchRef(commit) {
     if (!commit?.refs?.length) return false;
-    return commit.refs.some((r) => /(^|\/)feature\//.test(r) || /^origin\//.test(r));
+    const known = branchRefNames();
+    return commit.refs.some((r) => {
+      const clean = normalizeRefName(r);
+      if (!clean || clean === 'HEAD' || clean === 'main' || clean === 'master') return false;
+      if (known.has(clean)) return true;
+      if (/(^|\/)feature\//.test(r)) return true;
+      return /^origin\//.test(r);
+    });
+  }
+
+  function resolveCommitHash(token, commitMap) {
+    if (!token || !commitMap) return null;
+    if (commitMap[token]) return commitMap[token];
+    const hits = Object.keys(commitMap).filter((h) => h.startsWith(token));
+    return hits.length === 1 ? commitMap[hits[0]] : null;
+  }
+
+  function findMergeCommitForBranch(parsed, chain) {
+    const tipSet = new Set(chain.map((c) => c.hash));
+    for (const c of parsed.commits) {
+      if (c.parents.length < 2) continue;
+      const branchParent = c.parents[1];
+      if (tipSet.has(branchParent)) return c.hash;
+      if (chain.some((x) => x.hash === branchParent)) return c.hash;
+    }
+    return null;
+  }
+
+  /** Ensure every local git branch becomes a branchSegment for swimlane ⎇ rows. */
+  function enrichBranchSegmentsFromGitBranches(parsed, branches) {
+    if (!parsed || !branches?.length) return;
+    const commitMap = parsed.commitMap;
+    const mainlineSet = parsed.mainlineSet;
+    const existing = new Set(parsed.branchSegments.map((s) => s.id));
+
+    branches.forEach((b) => {
+      if (!b?.name || /^(main|master)$/i.test(b.name)) return;
+      if (existing.has(b.name)) return;
+      const tip = b.hash ? resolveCommitHash(b.hash, commitMap) : null;
+      if (!tip) {
+        parsed.branchSegments.push({
+          id: b.name,
+          name: b.name,
+          forkHash: null,
+          mergeHash: null,
+          merged: false,
+          continued: false,
+          commits: [],
+          commitSet: new Set(),
+          forkGraphX: null,
+          mergeGraphX: null,
+          outOfLog: true,
+        });
+        existing.add(b.name);
+        return;
+      }
+
+      const { chain, forkHash } = collectBranchChainToFork(tip.hash, commitMap, mainlineSet);
+      if (!chain.length || !forkHash || forkHash === tip.hash) {
+        parsed.branchSegments.push({
+          id: b.name,
+          name: b.name,
+          forkHash: forkHash || tip.parents?.[0] || null,
+          mergeHash: mainlineSet.has(tip.hash) ? tip.hash : null,
+          merged: mainlineSet.has(tip.hash),
+          continued: false,
+          commits: chain.length ? chain : [tip],
+          commitSet: new Set((chain.length ? chain : [tip]).map((c) => c.hash)),
+          forkGraphX: parsed.commits.find((c) => c.hash === forkHash)?.graphX ?? tip.graphX,
+          mergeGraphX: mainlineSet.has(tip.hash) ? tip.graphX : null,
+          outOfLog: false,
+        });
+        existing.add(b.name);
+        return;
+      }
+
+      const mergeHash = findMergeCommitForBranch(parsed, chain);
+      const commitSet = new Set(chain.map((c) => c.hash));
+      parsed.branchSegments.push({
+        id: b.name,
+        name: b.name,
+        forkHash,
+        mergeHash,
+        merged: Boolean(mergeHash),
+        continued: !mergeHash && !mainlineSet.has(tip.hash),
+        commits: chain,
+        commitSet,
+        forkGraphX: commitMap[forkHash]?.graphX ?? null,
+        mergeGraphX: mergeHash ? commitMap[mergeHash]?.graphX : null,
+        outOfLog: false,
+      });
+      existing.add(b.name);
+    });
+  }
+
+  function inferGitBranchesFromParsed(parsed) {
+    const byName = new Map();
+    parsed.commits.forEach((c) => {
+      (c.refs || []).forEach((r) => {
+        const name = normalizeRefName(r);
+        if (!name || name === 'HEAD' || name === 'main' || name === 'master') return;
+        if (!byName.has(name)) byName.set(name, { name, hash: c.hash });
+      });
+    });
+    return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
   /** Walk first-parent from tip until trunk; fork = last trunk commit before branch-only chain. */
@@ -559,11 +687,27 @@
     ) || null;
   }
 
+  /** Global upload column Cn — every commit in log, including branch-only uploads. */
+  function commitAtUploadColumn(parsed, columnV) {
+    if (!parsed) return null;
+    return parsed.commits.find(
+      (c) => c.versionIndex === columnV || columnsMatch(c.displayColumn, columnV),
+    ) || null;
+  }
+
+  function headUploadColumn(parsed) {
+    const head = headCommit(parsed);
+    return head?.versionIndex ?? head?.displayColumn ?? parsed?.commits?.length ?? 0;
+  }
+
   function versionLabelWithSubject(parsed, columnV, maxSubject = 14) {
     const base = PER_LANE_VERSION ? formatGlobalCommitColumn(columnV) : formatDisplayVersion(columnV);
-    const headV = headMainlineVersion(parsed) || 0;
+    const headV = headUploadColumn(parsed) || 0;
     if (!parsed || columnV > headV) return base;
-    const subj = truncateSubject(commitAtMainlineVersion(parsed, columnV)?.subject, maxSubject);
+    const commit = PER_LANE_VERSION
+      ? commitAtUploadColumn(parsed, columnV)
+      : commitAtMainlineVersion(parsed, columnV);
+    const subj = truncateSubject(commit?.subject, maxSubject);
     return subj ? `${base} · ${subj}` : base;
   }
 
@@ -596,9 +740,17 @@
   }
 
   function extractBranchName(commits) {
+    const known = branchRefNames();
     for (const c of commits) {
-      for (const r of c.refs) {
-        if (r.includes('feature/') || r.includes('/')) return r.replace(/^origin\//, '');
+      for (const r of c.refs || []) {
+        const clean = normalizeRefName(r);
+        if (known.has(clean)) return clean;
+      }
+    }
+    for (const c of commits) {
+      for (const r of c.refs || []) {
+        const clean = normalizeRefName(r);
+        if (clean && clean !== 'HEAD' && clean !== 'main' && clean !== 'master') return clean;
       }
     }
     return null;
@@ -1368,10 +1520,9 @@
     return parsed.commits.find((c) => c.hash === parsed.headHash) || parsed.commits[parsed.commits.length - 1];
   }
 
-  /** Latest upload version at HEAD (integer V column, includes branch tips). */
+  /** Latest global upload column at HEAD (Cn / Vn on trunk ruler). */
   function headMainlineVersion(parsed) {
-    const head = headCommit(parsed);
-    return head.versionIndex ?? head.displayColumn ?? 0;
+    return headUploadColumn(parsed);
   }
 
   function resolveFocusGraphX(parsed) {
@@ -1527,7 +1678,6 @@
     const events = buildLaneVersionEvents(lane, parsed);
     if (!events.length) return;
 
-    const headCol = headColumn(parsed);
     events.forEach((ev, i) => {
       if (!columnInWindow(ev.globalColumn, state.visibleColumnWindow)) return;
       if (!nodeOnLaneAtColumn(nodes, lane.path, ev.globalColumn)) {
@@ -1546,21 +1696,6 @@
         });
       }
     });
-
-    const last = events[events.length - 1];
-    if (last.globalColumn < headCol
-      && (columnInWindow(last.globalColumn, state.visibleColumnWindow)
-        || columnInWindow(headCol, state.visibleColumnWindow))) {
-      links.push({
-        kind: 'lane-idle',
-        from: traceAnchorAtColumn(nodes, lane, last.globalColumn),
-        to: { displayColumn: headCol, graphX: headCol, laneVersion: last.laneVersion },
-        lane,
-        laneIndex: lane.laneIndex,
-        heldVersion: last.laneVersion,
-        active: false,
-      });
-    }
   }
 
   function makeGraphNode(commit, lane, files, focusGraphX, head) {
@@ -1767,22 +1902,63 @@
     return { nodes, links, bundlesOnLane };
   }
 
-  function constraintSingle(filePath) {
-    return `【Horsewhip · 文件边界约束】
-只允许修改：${filePath}
+  function branchLabelForNode(node) {
+    if (node?.lane?.isBranchLane && node.lane.branchSegment) {
+      return `分支 ⎇ ${node.lane.branchSegment.name}`;
+    }
+    return '主泳道';
+  }
+
+  function selectionLocator(node) {
+    if (!node) return '';
+    const parts = [];
+    if (PER_LANE_VERSION && node.laneVersion != null) {
+      parts.push(`泳道 ${formatLaneVersion(node.laneVersion)}`);
+    }
+    const col = node.displayColumn ?? node.graphX;
+    if (col != null) {
+      parts.push(PER_LANE_VERSION ? formatGlobalCommitColumn(col) : formatDisplayVersion(col));
+    }
+    parts.push(branchLabelForNode(node));
+    if (node.hash) parts.push(`commit ${node.hash.slice(0, 12)}`);
+    return parts.join(' · ');
+  }
+
+  function constraintSingle(filePath, node) {
+    const loc = node ? `\n定位：${selectionLocator(node)}` : '';
+    return `【马鞭 · AI 文件边界】
+只允许修改：${filePath}${loc}
 禁止修改仓库内其他任何文件。
 若必须改动其他文件，请先停下并说明理由，待确认后再继续。`;
   }
 
   function constraintMulti(files) {
     const list = [...files].sort().join(', ');
-    return `【Horsewhip · 文件边界约束】
+    return `【马鞭 · AI 文件边界】
 允许修改：${list}
 （以上文件在该仓库历史中常于同一 commit 内共变）
 禁止修改上述范围以外的文件。`;
   }
 
-  /** Phase 2: explicit task boundary from user multi-select (not git co-change). */
+  /** Multi-lane selection — one node per swimlane, each with full locator. */
+  function constraintBoundaryFromNodes(nodes) {
+    const lines = nodes.map((node) => {
+      const folderPath = folderBoundaryPathFromNode(node);
+      const path = folderPath || node.filePath || node.files?.[0] || node.lanePath;
+      const label = folderPath
+        ? (folderPath === ROOT_BUCKET ? '仓库根目录/' : folderPath)
+        : path;
+      const scope = folderPath ? '（文件夹，含其下所有路径）' : '';
+      return `- ${label}${scope}\n  定位：${selectionLocator(node)}`;
+    }).join('\n');
+    return `【马鞭 · AI 文件边界】
+本次任务只允许修改以下范围（每条对应一个泳道上的选定版本），不要创建/修改/删除其他任何路径：
+${lines}
+
+若必须改动其他文件，请先说明理由并等待确认后再继续。`;
+  }
+
+  /** @deprecated path-only list — prefer constraintBoundaryFromNodes */
   function constraintBoundary(items) {
     const sorted = [...items].sort((a, b) => a.localeCompare(b));
     const lines = sorted.map((item) => {
@@ -1792,21 +1968,18 @@
       }
       return `- ${item}`;
     }).join('\n');
-    return `【Horsewhip · 文件边界】
+    return `【马鞭 · AI 文件边界】
 本次任务只允许修改以下范围，不要创建/修改/删除其他任何路径：
 ${lines}
 
 若必须改动其他文件，请先说明理由并等待确认后再继续。`;
   }
 
-  function constraintFolder(folderPath) {
+  function constraintFolder(folderPath, node) {
     const label = folderPath === ROOT_BUCKET ? '仓库根目录/' : folderPath;
-    const lv = PER_LANE_VERSION && state.parsed ? laneVersionAtHead(state.parsed, folderPath) : 0;
-    const verHint = lv > 0
-      ? `\n该目录泳道版本：${formatLaneVersion(lv)}（仅在本目录有提交时递增；横轴 Cn 为全仓库上传序）。`
-      : '';
-    return `【Horsewhip · 文件夹边界】
-本次任务只允许修改 ${label} 目录下的内容，不要创建/修改/删除该目录以外的任何路径。${verHint}
+    const loc = node ? `\n定位：${selectionLocator(node)}` : '';
+    return `【马鞭 · AI 文件夹边界】
+本次任务只允许修改 ${label} 目录下的内容，不要创建/修改/删除该目录以外的任何路径。${loc}
 
 若必须改动其他目录，请先说明理由并等待确认后再继续。`;
   }
@@ -1840,14 +2013,25 @@ ${lines}
     return [...state.boundaryFiles].sort((a, b) => a.localeCompare(b));
   }
 
-  function buildBoundaryPrompt() {
-    const items = getBoundaryFilesList();
-    if (items.length === 0) return '';
-    if (items.length === 1) {
-      const item = items[0];
-      return isFolderBoundaryPath(item) ? constraintFolder(item) : constraintSingle(item);
+  function getSelectedGraphNodes() {
+    return [...state.selectedNodeIds]
+      .map((id) => state.nodeIndex[id])
+      .filter((n) => n && nodeCanSelect(n));
+  }
+
+  function clearSelectionOnLane(lanePath, exceptId = null) {
+    for (const id of [...state.selectedNodeIds]) {
+      if (id === exceptId) continue;
+      const other = state.nodeIndex[id];
+      if (other?.lanePath === lanePath) state.selectedNodeIds.delete(id);
     }
-    return constraintBoundary(items);
+  }
+
+  function buildBoundaryPrompt() {
+    const nodes = getSelectedGraphNodes();
+    if (nodes.length === 0) return '';
+    if (nodes.length === 1) return constraintForNode(nodes[0]);
+    return constraintBoundaryFromNodes(nodes);
   }
 
   function nodeBoundaryPaths(node) {
@@ -1935,8 +2119,10 @@ ${lines}
     state.selectedNodeIds.clear();
     state.boundaryFiles.clear();
     state.lastSelectedNodeId = null;
+    state.pulseNodeId = null;
     syncBoundaryBar();
     updateSelectionVisuals();
+    syncNodeRippleVisuals();
   }
 
   function toggleSelectedNode(node) {
@@ -1947,6 +2133,7 @@ ${lines}
         state.lastSelectedNodeId = [...state.selectedNodeIds].slice(-1)[0] || null;
       }
     } else {
+      clearSelectionOnLane(node.lanePath, node.id);
       state.selectedNodeIds.add(node.id);
       state.lastSelectedNodeId = node.id;
     }
@@ -2741,7 +2928,240 @@ git reset --hard ${hash}`;
     return { start, end };
   }
 
+  function branchSegmentByName(name) {
+    return (state.parsed?.branchSegments || []).find((s) => s.id === name || s.name === name);
+  }
+
+  function isMainBranchName(name) {
+    return /^(main|master)$/i.test(String(name || '').trim());
+  }
+
+  function mainBranchName() {
+    const cur = state.currentGitBranch || '';
+    if (isMainBranchName(cur)) return cur;
+    const list = state.gitBranches || [];
+    if (list.some((b) => b.name === 'main')) return 'main';
+    if (list.some((b) => b.name === 'master')) return 'master';
+    return 'main';
+  }
+
+  function filesForBranchSegment(seg) {
+    const s = new Set();
+    (seg?.commits || []).forEach((c) => (c.files || []).forEach((f) => s.add(f)));
+    return [...s].sort((a, b) => a.localeCompare(b));
+  }
+
+  function fusionBoundaryFiles() {
+    const files = new Set();
+    state.selectedBranchNames.forEach((name) => {
+      filesForBranchSegment(branchSegmentByName(name)).forEach((f) => files.add(f));
+    });
+    return [...files].sort((a, b) => a.localeCompare(b));
+  }
+
+  function buildBranchFusionPrompt() {
+    const names = [...state.selectedBranchNames].sort((a, b) => a.localeCompare(b));
+    if (names.length < 2) return '';
+    const main = mainBranchName();
+    const parsed = state.parsed;
+    const blocks = names.map((name) => {
+      const b = (state.gitBranches || []).find((x) => x.name === name);
+      const seg = branchSegmentByName(name);
+      const tip = b?.hash && parsed ? resolveCommitHash(b.hash, parsed.commitMap) : null;
+      const files = seg ? filesForBranchSegment(seg) : [];
+      const preview = files.length
+        ? files.slice(0, 36).join(', ') + (files.length > 36 ? ` …+${files.length - 36}` : '')
+        : '(log 中无路径记录，请 checkout 该分支后自行查看)';
+      const status = seg?.merged ? '已合并过' : (seg?.continued ? '进行中' : '实验保留');
+      return `- **${name}**（${status}）${tip ? `\n  tip commit: \`${tip.hash}\`` : ''}\n  涉及文件 ${files.length} 个：${preview}`;
+    }).join('\n\n');
+
+    const allFiles = fusionBoundaryFiles();
+    const fileScope = allFiles.length
+      ? allFiles.join(', ')
+      : '（请根据各分支 diff 自行确定）';
+
+    return `【马鞭 · AI 多分支融合】
+
+目标：以下 ${names.length} 条实验分支各自都有可取之处，请把它们**择优融合**回主泳道 **${main}**，形成一个新的统一版本；完成后我会在马鞭主泳道上继续观察（本工具为 AI 边界收束，非 Git 拓扑图）。
+
+待融合分支（请保留各分支上「还可以」的实现，不要简单用某一版全覆盖）：
+${blocks}
+
+主泳道：\`${main}\`（融合结果的落点）
+
+允许修改的文件范围（各分支触及路径的并集）：
+${fileScope}
+
+禁止修改上述范围以外的文件；若必须扩展范围，请先说明理由并等待确认。
+
+推荐流程：
+1. \`git checkout ${main}\` 并确保工作区干净（或 stash）
+2. 逐分支对比 diff（\`git diff ${main}..<branch>\` 或 checkout 查看），按文件择优合并
+3. 解决冲突后提交一次清晰的 merge commit（说明融合了：${names.join('、')}）
+4. 告知我刷新 Horsewhip；新 commit 应出现在主泳道时间轴上
+
+融合原则：同一文件多处改动时，保留各分支优点并合成一致风格；不确定处列出选项让我确认。`;
+  }
+
+  function clearBranchFusionSelection() {
+    if (state.selectedBranchNames.size === 0) return;
+    state.selectedBranchNames.clear();
+    syncFuseBar();
+    renderBranchRail();
+    if (state.parsed) scheduleRenderFromState();
+  }
+
+  function toggleBranchFusionPick(name) {
+    if (isMainBranchName(name)) return;
+    if (state.selectedBranchNames.has(name)) state.selectedBranchNames.delete(name);
+    else state.selectedBranchNames.add(name);
+    state.highlightBranchName = name;
+    syncFuseBar();
+    renderBranchRail();
+    syncBranchLaneHighlight();
+    if (state.parsed) scheduleRenderFromState();
+  }
+
+  function runFusionPulseAnim() {
+    playWhipCrackSound();
+    const stage = els.stage || document.getElementById('stage');
+    stage?.classList.add('hw-fuse-pulse');
+    setTimeout(() => stage?.classList.remove('hw-fuse-pulse'), 1500);
+  }
+
+  function crackWhipOnFusion(btnEl) {
+    const text = buildBranchFusionPrompt();
+    if (!text) return;
+    const crackTarget = btnEl?.closest?.('.hw-fuse-bar') || btnEl;
+    crackTarget?.classList.add('hw-fuse-bar--crack');
+    runFusionPulseAnim();
+    copyText(text);
+    showCopyToast(`已复制 ${state.selectedBranchNames.size} 条分支的融合任务 · 粘贴到 Chat`);
+    setTimeout(() => crackTarget?.classList.remove('hw-fuse-bar--crack'), 520);
+  }
+
+  function insertBranchFusionToChat() {
+    const text = buildBranchFusionPrompt();
+    if (!text) return;
+    runFusionPulseAnim();
+    if (window.HorsewhipPluginBridge?.insertBoundaryToChat) {
+      window.HorsewhipPluginBridge.insertBoundaryToChat(text);
+    } else {
+      copyText(text, els.btnFuseChat);
+    }
+  }
+
+  function syncFuseBar() {
+    const n = state.selectedBranchNames.size;
+    const show = n >= 2;
+    if (els.fuseBar) els.fuseBar.hidden = !show;
+    if (els.fuseCount) {
+      els.fuseCount.textContent = show ? `已选 ${n} 条分支` : '';
+    }
+    if (els.fuseNames) {
+      els.fuseNames.textContent = show ? [...state.selectedBranchNames].sort().join(' · ') : '';
+      els.fuseNames.title = show ? [...state.selectedBranchNames].join('\n') : '';
+    }
+    if (els.btnFuseCopy) els.btnFuseCopy.disabled = !show;
+    if (els.btnFuseChat) els.btnFuseChat.disabled = !show;
+
+    if (show && isPluginHost() && window.HorsewhipPluginBridge?.setBoundaryAllowlist) {
+      window.HorsewhipPluginBridge.setBoundaryAllowlist(fusionBoundaryFiles());
+    } else if (!show && isPluginHost()) {
+      syncBoundaryBar();
+    }
+  }
+
+  function renderBranchRail() {
+    const rail = els.branchRail;
+    if (!rail) return;
+    rail.innerHTML = '';
+    const list = state.gitBranches || [];
+    if (!list.length) {
+      rail.hidden = true;
+      return;
+    }
+    rail.hidden = false;
+
+    const title = document.createElement('div');
+    title.className = 'hw-branch-rail__title';
+    title.textContent = `分支 (${list.length})`;
+    rail.appendChild(title);
+
+    const hint = document.createElement('div');
+    hint.className = 'hw-branch-rail__hint';
+    hint.textContent = '点击勾选融合 · Shift+点击仅聚焦';
+    rail.appendChild(hint);
+
+    list.forEach((b) => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'hw-branch-rail__item';
+      const seg = branchSegmentByName(b.name);
+      const tip = b.hash && state.parsed ? resolveCommitHash(b.hash, state.parsed.commitMap) : null;
+      const isMain = isMainBranchName(b.name);
+      if (b.name === state.currentGitBranch) row.classList.add('hw-branch-rail__item--current');
+      if (b.name === state.highlightBranchName) row.classList.add('hw-branch-rail__item--focus');
+      if (state.selectedBranchNames.has(b.name)) row.classList.add('hw-branch-rail__item--fuse-pick');
+      if (!tip || seg?.outOfLog) row.classList.add('hw-branch-rail__item--muted');
+      if (seg?.merged) row.classList.add('hw-branch-rail__item--merged');
+      if (isMain) row.classList.add('hw-branch-rail__item--main');
+
+      const check = document.createElement('span');
+      check.className = 'hw-branch-rail__check';
+      check.setAttribute('aria-hidden', 'true');
+      check.textContent = state.selectedBranchNames.has(b.name) ? '✓' : '';
+      const label = document.createElement('span');
+      label.className = 'hw-branch-rail__label';
+      label.textContent = b.name;
+      row.appendChild(check);
+      row.appendChild(label);
+
+      const status = seg?.merged ? '已合并' : (seg?.continued ? '进行中' : (seg?.outOfLog ? '未载入' : '活跃'));
+      row.title = `${b.name}${b.hash ? `\n${b.hash.slice(0, 12)}` : ''}\n${status}${isMain ? '\n主泳道（融合目标）' : '\n点击：加入/取消融合 · Shift+点击：聚焦时间轴'}`;
+      row.addEventListener('click', (e) => {
+        if (e.shiftKey || isMain) {
+          focusGitBranch(b.name);
+          return;
+        }
+        toggleBranchFusionPick(b.name);
+      });
+      rail.appendChild(row);
+    });
+    syncFuseBar();
+  }
+
+  function focusGitBranch(name) {
+    state.highlightBranchName = name;
+    const b = (state.gitBranches || []).find((x) => x.name === name);
+    if (b?.hash && state.parsed) {
+      const tip = resolveCommitHash(b.hash, state.parsed.commitMap);
+      if (tip) {
+        state.focusGraphX = tip.displayColumn ?? tip.versionIndex;
+        state.panX = null;
+        scheduleRenderFromState();
+      }
+    }
+    renderBranchRail();
+    syncBranchLaneHighlight();
+  }
+
+  function syncBranchLaneHighlight() {
+    if (!els.fileRailInner) return;
+    const name = state.highlightBranchName;
+    const fuseSet = state.selectedBranchNames;
+    els.fileRailInner.querySelectorAll('.file-rail__item--branch').forEach((row) => {
+      const label = row.querySelector('.file-rail__label')?.textContent || '';
+      const branchName = label.replace(/^⎇\s*/, '').trim();
+      const match = name && label.includes(name.replace(/^⎇\s*/, ''));
+      row.classList.toggle('file-rail__item--branch-focus', !!match);
+      row.classList.toggle('file-rail__item--branch-fuse', fuseSet.size >= 2 && fuseSet.has(branchName));
+    });
+  }
+
   function prepareFileRailShell(lanes) {
+    renderBranchRail();
     const inner = els.fileRailInner;
     inner.innerHTML = '';
     const spacer = document.createElement('div');
@@ -2862,22 +3282,6 @@ git reset --hard ${hash}`;
       );
       return;
     }
-    if (link.kind === 'lane-idle') {
-      const x1 = versionX(link.from.displayColumn ?? link.from.graphX);
-      const x2 = versionX(link.to.displayColumn ?? link.to.graphX);
-      const y = yScale(link.laneIndex);
-      appendLinkPath(
-        linkG,
-        'idle',
-        false,
-        laneLine(x1, y, x2, y),
-        link,
-        null,
-        link.lane.colorDim,
-        link.lane.colorDim,
-      );
-      return;
-    }
     if (link.kind === 'lane-bridge' || link.kind === 'lane-trace') {
       const x1 = versionX(link.from.displayColumn ?? link.from.graphX);
       const x2 = versionX(link.to.displayColumn ?? link.to.graphX);
@@ -2973,6 +3377,7 @@ git reset --hard ${hash}`;
     lanes.forEach((lane) => inner.appendChild(appendFileRailRow(lane)));
     syncFileRailFocusHighlight();
     syncFileRailBoundaryHighlight();
+    syncBranchLaneHighlight();
   }
 
   function getLaneSlice(laneIndex) {
@@ -3007,8 +3412,11 @@ git reset --hard ${hash}`;
       .attr('data-lane-index', laneIndex);
 
     if (!lane.isHeader) {
+      const fusePick = lane.isBranchLane
+        && lane.branchSegment
+        && state.selectedBranchNames.has(lane.branchSegment.name);
       root.append('line')
-        .attr('class', `lane-guide${lane.isBranchLane ? ' lane-guide--branch' : ''}`)
+        .attr('class', `lane-guide${lane.isBranchLane ? ' lane-guide--branch' : ''}${fusePick ? ' lane-guide--branch-fuse' : ''}`)
         .attr('x1', -8)
         .attr('x2', futureExtentX(state.parsed))
         .attr('y1', yScale(laneIndex))
@@ -3160,8 +3568,8 @@ git reset --hard ${hash}`;
       els.graphEmpty.classList.remove('hidden');
       const title = els.graphEmpty.querySelector('.graph-empty__title');
       const desc = els.graphEmpty.querySelector('.graph-empty__desc');
-      if (title) title.textContent = '暂无泳道';
-      if (desc) desc.textContent = '请确认已有 commit，或执行「Horsewhip: Refresh Git Log」';
+      if (title) title.textContent = '划定边界，再让 AI 动手';
+      if (desc) desc.textContent = '需要至少一次 commit 才有泳道 · 命令面板：马鞭: 刷新 Git 记录';
     }
     if (els.graphHint) els.graphHint.hidden = true;
     if (els.graphZoom) els.graphZoom.hidden = true;
@@ -3283,18 +3691,21 @@ git reset --hard ${hash}`;
   function renderVersionRuler(g, model, innerH) {
     const rh = CONFIG.RULER_HEIGHT;
     const baseline = rh - 8;
-    const headMainlineIdx = headMainlineVersion(state.parsed);
-    const pulseCol = pulseColumn(state.parsed);
-    const extent = rulerExtent(state.parsed);
+    const parsed = state.parsed;
+    const headUploadIdx = headUploadColumn(parsed);
+    const pulseCol = pulseColumn(parsed);
+    const extent = rulerExtent(parsed);
     const extendX = versionColumnX(extent);
     const gridG = g.append('g').attr('class', 'version-ruler__grid');
     const chromeG = g.append('g').attr('class', 'version-ruler');
 
     for (let v = 1; v <= extent; v += 1) {
       const vx = versionColumnX(v);
-      const isLit = v <= headMainlineIdx;
-      const isHead = v === headMainlineIdx;
-      const isFuture = v > headMainlineIdx;
+      const uploadCommit = parsed ? commitAtUploadColumn(parsed, v) : null;
+      const isFuture = v > headUploadIdx;
+      const isLit = !!uploadCommit && v <= headUploadIdx;
+      const isHead = v === headUploadIdx;
+      const isBranchOnly = isLit && uploadCommit && !uploadCommit.isMainline;
 
       gridG.append('line')
         .attr('class', `version-ruler__vline${isFuture ? ' version-ruler__vline--future' : ''}`)
@@ -3325,16 +3736,19 @@ git reset --hard ${hash}`;
         .attr('text-anchor', 'middle')
         .text(PER_LANE_VERSION ? `C${v}` : `V${v}`);
 
-      chromeG.append('circle')
-        .attr('class', [
-          'version-ruler__dot',
-          isLit ? 'version-ruler__dot--lit' : '',
-          isHead && isLit ? 'version-ruler__dot--head' : '',
-          isFuture ? 'version-ruler__dot--future' : '',
-        ].filter(Boolean).join(' '))
-        .attr('cx', vx)
-        .attr('cy', baseline)
-        .attr('r', isLit ? 2.2 : 1.4);
+      if (uploadCommit || isFuture) {
+        chromeG.append('circle')
+          .attr('class', [
+            'version-ruler__dot',
+            isLit ? 'version-ruler__dot--lit' : '',
+            isHead && isLit ? 'version-ruler__dot--head' : '',
+            isFuture ? 'version-ruler__dot--future' : '',
+            isBranchOnly ? 'version-ruler__dot--branch' : '',
+          ].filter(Boolean).join(' '))
+          .attr('cx', vx)
+          .attr('cy', baseline)
+          .attr('r', isLit ? 2.2 : 1.4);
+      }
     }
 
     chromeG.append('line')
@@ -3344,11 +3758,11 @@ git reset --hard ${hash}`;
       .attr('y1', baseline)
       .attr('y2', baseline);
 
-    if (headMainlineIdx > 0) {
+    if (headUploadIdx > 0) {
       chromeG.append('line')
         .attr('class', 'version-ruler__progress')
         .attr('x1', versionColumnX(1))
-        .attr('x2', versionColumnX(headMainlineIdx))
+        .attr('x2', versionColumnX(headUploadIdx))
         .attr('y1', baseline)
         .attr('y2', baseline);
     }
@@ -3446,9 +3860,9 @@ git reset --hard ${hash}`;
 
   function constraintForNode(node) {
     const folderPath = folderBoundaryPathFromNode(node);
-    if (folderPath) return constraintFolder(folderPath);
+    if (folderPath) return constraintFolder(folderPath, node);
     const files = node.files || [node.filePath];
-    if (files.length === 1) return constraintSingle(files[0]);
+    if (files.length === 1) return constraintSingle(files[0], node);
     return constraintMulti(files);
   }
 
@@ -3959,7 +4373,20 @@ git reset --hard ${hash}`;
 
     const onGraphClick = (e) => {
       const picked = pickFileNodeFromPointer(e);
-      if (!picked) return;
+      if (!picked) {
+        if (nodeClickTimer) {
+          clearTimeout(nodeClickTimer);
+          nodeClickTimer = null;
+        }
+        if (state.selectedNodeIds.size > 0) clearNodeSelection();
+        if (state.selectedLink) {
+          state.selectedLink = null;
+          els.linkPanel.hidden = true;
+          updateSelectionVisuals();
+        }
+        hideTooltip();
+        return;
+      }
       suppressOutsideClick = true;
       e.stopPropagation();
       if (nodeClickTimer) clearTimeout(nodeClickTimer);
@@ -4041,6 +4468,10 @@ git reset --hard ${hash}`;
       const parsed = parseGitLog(sliced.text);
       parsed.totalCommitsInLog = sliced.totalCommits;
       parsed.loadedCommitCount = sliced.loaded;
+      if (!state.gitBranches.length) {
+        state.gitBranches = inferGitBranchesFromParsed(parsed);
+      }
+      enrichBranchSegmentsFromGitBranches(parsed, state.gitBranches);
       state.parsed = parsed;
       state.panX = null;
       state.scrollTop = 0;
@@ -4225,6 +4656,26 @@ git reset --hard ${hash}`;
     mountWhipIcon(btn, 'hw-whip-btn__svg');
   }
 
+  function ensureFuseWhipButton() {
+    const btn = els.btnFuseCopy;
+    if (!btn) return;
+    btn.classList.add('hw-whip-btn');
+    btn.title = '复制融合任务';
+    btn.setAttribute('aria-label', '复制融合任务');
+    mountWhipIcon(btn, 'hw-whip-btn__svg');
+  }
+
+  function wireFuseBar() {
+    ensureFuseWhipButton();
+    if (els.btnFuseChat && !isPluginHost()) {
+      els.btnFuseChat.textContent = '复制融合任务';
+    }
+    els.btnFuseClear?.addEventListener('click', () => clearBranchFusionSelection());
+    els.btnFuseCopy?.addEventListener('click', () => crackWhipOnFusion(els.btnFuseCopy));
+    els.btnFuseChat?.addEventListener('click', () => insertBranchFusionToChat());
+    syncFuseBar();
+  }
+
   function wireBoundaryBar() {
     ensureBoundaryWhipButton();
     if (els.btnBoundaryChat && !isPluginHost()) {
@@ -4248,6 +4699,7 @@ git reset --hard ${hash}`;
     syncBoundaryBar();
   }
   wireBoundaryBar();
+  wireFuseBar();
 
   els.modalClose.addEventListener('click', closeModal);
   els.modalBackdrop.addEventListener('click', (e) => {
@@ -4327,6 +4779,16 @@ git reset --hard ${hash}`;
       state.pluginDemoAllFiles = false;
       state.workspaceFiles = Array.isArray(paths) ? paths : [];
       if (state.parsed) scheduleRenderFromState();
+    },
+    setGitBranches(branches, currentBranch) {
+      state.gitBranches = Array.isArray(branches) ? branches : [];
+      state.currentGitBranch = currentBranch || '';
+      if (state.parsed) {
+        enrichBranchSegmentsFromGitBranches(state.parsed, state.gitBranches);
+        scheduleRenderFromState();
+      } else {
+        renderBranchRail();
+      }
     },
     getModalNode: () => state.modalNode,
     getBoundaryFiles: getBoundaryFilesList,

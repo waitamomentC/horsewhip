@@ -107,6 +107,74 @@ export function buildTimelineHtml(
       width: var(--file-rail-w, 200px);
       flex: 0 0 var(--file-rail-w, 200px);
       border-right: 1px solid rgba(255,255,255,.1);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .hw-branch-rail {
+      flex: 0 0 auto;
+      max-height: 38%;
+      overflow-y: auto;
+      border-bottom: 1px solid rgba(255,255,255,.12);
+      padding: 6px 0 4px;
+      background: #0c0d10;
+    }
+    .hw-branch-rail__title {
+      padding: 2px 10px 6px;
+      font: 600 10px/1.2 Inter, system-ui, sans-serif;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #9aa3b2;
+    }
+    .hw-branch-rail__item {
+      display: block;
+      width: 100%;
+      text-align: left;
+      border: none;
+      background: transparent;
+      color: #c4cad6;
+      font: 500 11px/1.35 'JetBrains Mono', ui-monospace, monospace;
+      padding: 4px 10px;
+      cursor: pointer;
+    }
+    .hw-branch-rail__item:hover { background: rgba(255,255,255,.06); }
+    .hw-branch-rail__item--current { color: #fbbf24; }
+    .hw-branch-rail__item--current::before { content: '● '; color: #f97316; }
+    .hw-branch-rail__item--focus { background: rgba(109,126,232,.22); color: #fff; }
+    .hw-branch-rail__item--merged { opacity: 0.72; }
+    .hw-branch-rail__item--muted { opacity: 0.45; font-style: italic; }
+    .hw-branch-rail__hint { padding: 0 10px 6px; font-size: 9px; color: #6b7280; }
+    .hw-branch-rail__item { display: flex; align-items: center; gap: 6px; }
+    .hw-branch-rail__check { flex: 0 0 14px; color: #8b97ff; font-size: 10px; text-align: center; }
+    .hw-branch-rail__item--fuse-pick { background: rgba(139,151,255,.14); color: #e8ecff; }
+    .hw-fuse-bar {
+      flex: 0 0 auto;
+      padding: 8px 10px;
+      border-bottom: 1px solid rgba(139,151,255,.35);
+      background: linear-gradient(180deg, rgba(109,126,232,.12), #0c0d10);
+    }
+    .hw-fuse-bar__title { font: 600 10px/1.2 Inter,sans-serif; color: #a5b4fc; text-transform: uppercase; letter-spacing: .05em; }
+    .hw-fuse-bar__count { display: block; font-size: 11px; color: #e5e7eb; margin-top: 2px; }
+    .hw-fuse-bar__names { display: block; font: 10px/1.35 'JetBrains Mono',monospace; color: #9ca3af; margin-top: 2px; }
+    .hw-fuse-bar__actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .hw-plugin .stage.hw-fuse-pulse::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 40;
+      background: linear-gradient(105deg, transparent, rgba(251,191,36,.2), transparent);
+      animation: hw-fuse-sweep 1.2s ease-in-out;
+    }
+    @keyframes hw-fuse-sweep {
+      0% { transform: translateX(-100%); opacity: 0; }
+      20% { opacity: 1; }
+      100% { transform: translateX(100%); opacity: 0; }
+    }
+    body.hw-plugin .file-rail__inner {
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow-y: auto;
     }
     body.hw-plugin .graph-viewport {
       flex: 1 1 auto;
@@ -186,6 +254,7 @@ export function buildTimelineHtml(
       font: 500 12px/1.4 Inter, sans-serif; color: #9aa3b2;
     }
     .plugin-bar strong { color: #e8eaed; font-weight: 600; }
+    .plugin-bar__tagline { font-size: 10px; font-weight: 600; color: #a5b4fc; letter-spacing: 0.04em; }
     .plugin-bar code { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #6d7ce8; }
     .modal__btn-run { margin-left: 8px; }
     .commit-prompt {
@@ -345,6 +414,8 @@ export function buildTimelineHtml(
 <body class="hw-plugin hw-per-lane-v">
   <div class="plugin-bar">
     <strong>Horsewhip</strong>
+    <span class="plugin-bar__tagline">AI 边界</span>
+    <span class="plugin-bar__sep">·</span>
     <span>工作区 <code>${workspaceLabel}</code></span>
     <span class="plugin-bar__sep">·</span>
     <span id="plugin-open-status">同步资源管理器目录层级…</span>
@@ -374,14 +445,27 @@ export function buildTimelineHtml(
   </div>
   <div class="hw-workspace" id="hw-workspace">
   <div class="hw-stage-head" aria-hidden="false">
-    <div class="hw-stage-head__files">文件栏</div>
+    <div class="hw-stage-head__files">分支 · 文件</div>
     <div class="hw-stage-head__lanes">
       泳道
-      <span class="hw-stage-head__hint">点文件聚焦 · 折叠文件夹可选中边界 · ▸/▾ 展开收起 · 点节点切换选中 · 小马鞭复制</span>
+      <span class="hw-stage-head__hint">分支栏多选融合 · 点文件聚焦 · 点节点选边界 · 小马鞭复制</span>
     </div>
   </div>
   <main class="stage" id="stage">
     <aside class="file-rail" id="file-rail" aria-label="Files">
+      <div class="hw-branch-rail" id="branch-rail" hidden aria-label="Git branches"></div>
+      <div class="hw-fuse-bar" id="hw-fuse-bar" hidden>
+        <div class="hw-fuse-bar__info">
+          <strong class="hw-fuse-bar__title">分支融合</strong>
+          <span class="hw-fuse-bar__count" id="hw-fuse-count"></span>
+          <span class="hw-fuse-bar__names" id="hw-fuse-names"></span>
+        </div>
+        <div class="hw-fuse-bar__actions">
+          <button type="button" class="plugin-bar__btn" id="btn-fuse-clear">清空</button>
+          <button type="button" class="plugin-bar__btn hw-whip-btn" id="btn-fuse-copy" title="复制融合任务" aria-label="复制融合任务"></button>
+          <button type="button" class="plugin-bar__btn plugin-bar__btn--primary" id="btn-fuse-chat">AI 融合 → 主泳道</button>
+        </div>
+      </div>
       <div class="file-rail__inner" id="file-rail-inner"></div>
     </aside>
     <section class="graph-viewport" id="graph-viewport" tabindex="0" aria-label="泳道时间线">
@@ -389,8 +473,8 @@ export function buildTimelineHtml(
         <svg id="graph-svg" class="graph-svg" role="img" aria-label="Version timeline"></svg>
       </div>
       <div class="graph-empty" id="graph-empty">
-        <p class="graph-empty__title">加载中…</p>
-        <p class="graph-empty__desc">正在读取 git log</p>
+        <p class="graph-empty__title">划定边界，再让 AI 动手</p>
+        <p class="graph-empty__desc">正在同步泳道与分支…</p>
       </div>
       <div class="graph-hint" id="graph-hint" hidden>
         <span class="graph-hint__item">首屏 HEAD</span>

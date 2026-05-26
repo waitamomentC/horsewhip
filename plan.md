@@ -8,6 +8,8 @@
 
 ## 0. 产品愿景（终态）
 
+> **定位摘要**（对外文案见 [`README.md`](./README.md)）：马鞭为 **AI 协作** 而生，是边界可视化与收束方案，**不是** GitGraph / 传统 Git 客户端；刻意降低 Git 专业术语，强化「划边界 → 融合回主泳道」。
+
 用户在 Cursor / Claude Code 等 vibe coding 环境里对 AI 说：「改 A 文件，做 xxx」。  
 AI 却悄悄改了 A、B、C。马鞭的职责是 **锁死文件边界**：
 

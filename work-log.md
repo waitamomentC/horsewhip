@@ -19,7 +19,7 @@
 | Phase 3 完整版 | — | — | — | — | 未启动 |
 
 **当前焦点**：Phase 2 IDE 插件 v0.1（`extension/`）  
-**最后更新**：2026-05-25
+**最后更新**：2026-05-25 · 定位：AI 边界可视化（非 GitGraph）
 
 ---
 
@@ -238,6 +238,10 @@
 2026-05-24 | 3.11 | ✅ 完成 | 布局 v3：马鞭 logo 保留；demo/paste/generate 移入标题栏；左 128px 文件栏与右节点视图 Y 轴对齐、纵向滚动同步；右区滚轮 ↑ 历史 ↓ 未来
 2026-05-24 | 3.10 | ✅ 完成 | 极简极客 UI：纯 #000/#fff 双主题、移除 blob/渐变/玻璃
 2026-05-24 | M1 | ✅ 完成 | Phase 1 网页 MVP 全部开发任务 1.1–3.9
+2026-05-25 | 定位 | ✅ | README / extension README 重写 | AI 边界为核心，明确非 GitGraph；约束文案改「马鞭 · AI 文件边界」；空态/提示对齐工作流
+2026-05-25 | P2 | 🔄 | 分支栏全量 + 多选融合 | git for-each-ref、融合条、插入 Chat 任务
+2026-05-25 | 协议 | ✅ | AGENTS.md | vibe coding：必 commit、有 origin 必 push、分支仅 feature/*
+2026-05-25 | Claude | ✅ | CLAUDE.md + .claude/rules/ | Claude Code 会话自动加载，无需 @；用户模板 docs/templates/
 ```
 
 ---
