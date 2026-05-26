@@ -67,7 +67,7 @@ horsewhip 做三件事：
 ```bash
 cd /path/to/your-project    # 你的业务仓库根目录，不是 horsewhip 仓库
 
-curl -fsSL https://raw.githubusercontent.com/waitamomentC/horsewhip/main/protocol/scripts/install-claude-horsewhip.sh | bash -s -- .
+curl -fsSL https://raw.githubusercontent.com/waitamomentC/horsewhip/experiment/per-folder-version/protocol/scripts/install-claude-horsewhip.sh | bash -s -- .
 ```
 
 | 安装结果 | 位置 |
@@ -85,7 +85,7 @@ curl -fsSL https://raw.githubusercontent.com/waitamomentC/horsewhip/main/protoco
 ```bash
 cd /path/to/your-project
 curl -fsSL -o AGENTS.md \
-  "https://raw.githubusercontent.com/waitamomentC/horsewhip/main/protocol/AGENTS.md"
+  "https://raw.githubusercontent.com/waitamomentC/horsewhip/experiment/per-folder-version/protocol/AGENTS.md"
 ```
 
 在 Cursor **Rules** 固定引用 `@AGENTS.md`，或对话里 `@AGENTS.md`。
