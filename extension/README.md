@@ -54,4 +54,4 @@ npm run package
 
 修改根目录 `script.js` / `style.css` 后执行 `npm run sync-assets` 同步到 `media/`。
 
-自定义鞭子音效：在仓库根目录 `media/` 放入 `whip-crack.mp3`（或 `.wav` / `.ogg`），再 `npm run sync-assets`。详见根目录 [`media/README.md`](../media/README.md)。
+自定义鞭子音效：在仓库根目录 `media/` 放入 `whip-crack.mp3`（或 `.wav` / `.ogg`），再 `npm run sync-assets`。详见 [media/README.md](https://github.com/waitamomentC/horsewhip/blob/main/media/README.md)。
