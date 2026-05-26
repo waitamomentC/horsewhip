@@ -32,7 +32,7 @@ python3 -m http.server 8080
 
 **鞭子音效**：将短促「啪」声放到 [`media/whip-crack.mp3`](./media/whip-crack.mp3)（或 `.wav` / `.ogg`），见 [`media/README.md`](./media/README.md)。未放置时使用内置合成音。
 
-**实验分支** `experiment/per-folder-version`：每文件夹独立泳道版本（Vn），横轴刻度为全仓库上传序（Cn）；插件版本号为 `ve.0.x`。
+**实验分支** `experiment/per-folder-version`：每文件夹独立泳道版本（Vn），横轴刻度为全仓库上传序（Cn）；插件版本号为 `0.6.0-ve.x`（semver 预发布，区别于 main 的 `0.6.0`）。
 
 1. 标题栏点 **demo** 或 **paste** → **generate**
 2. **V1 贴画布左缘** · 默认**顶层 folder 聚合**（`src/`、`docs/`、`(root)` 等，▸ 展开）
