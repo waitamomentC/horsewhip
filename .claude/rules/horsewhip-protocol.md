@@ -272,7 +272,7 @@ merge: 融合 feature/ui-dark-v2 与 feature/read-cache 回 main
 
 ```bash
 cd /path/to/your-project
-curl -fsSL https://raw.githubusercontent.com/waitamomentC/horsewhip/experiment/per-folder-version/protocol/scripts/install-claude-horsewhip.sh | bash -s -- .
+curl -fsSL https://raw.githubusercontent.com/waitamomentC/horsewhip/main/protocol/scripts/install-claude-horsewhip.sh | bash -s -- .
 ```
 
 | 情况 | 做法 |
@@ -285,7 +285,7 @@ curl -fsSL https://raw.githubusercontent.com/waitamomentC/horsewhip/experiment/p
 ### 手动安装 / Cursor
 
 ```bash
-BRANCH=experiment/per-folder-version
+BRANCH=main
 curl -fsSL -o AGENTS.md \
   "https://raw.githubusercontent.com/waitamomentC/horsewhip/${BRANCH}/protocol/AGENTS.md"
 ```

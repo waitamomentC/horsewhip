@@ -21,13 +21,13 @@
 ### ① 新项目
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/waitamomentC/horsewhip/experiment/per-folder-version/protocol/scripts/install-claude-horsewhip.sh | bash -s -- . --with-claude-md
+curl -fsSL https://raw.githubusercontent.com/waitamomentC/horsewhip/main/protocol/scripts/install-claude-horsewhip.sh | bash -s -- . --with-claude-md
 ```
 
 ### ② 已有 `CLAUDE.md`（推荐）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/waitamomentC/horsewhip/experiment/per-folder-version/protocol/scripts/install-claude-horsewhip.sh | bash -s -- .
+curl -fsSL https://raw.githubusercontent.com/waitamomentC/horsewhip/main/protocol/scripts/install-claude-horsewhip.sh | bash -s -- .
 ```
 
 加指针：`…/install-claude-horsewhip.sh . --snippet` 或 `--append-snippet`

@@ -23,7 +23,7 @@ node protocol/scripts/sync.mjs
 ## 用户安装（业务项目）
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/waitamomentC/horsewhip/experiment/per-folder-version/protocol/scripts/install-claude-horsewhip.sh | bash -s -- .
+curl -fsSL https://raw.githubusercontent.com/waitamomentC/horsewhip/main/protocol/scripts/install-claude-horsewhip.sh | bash -s -- .
 ```
 
 详见 [`docs/claude-code.md`](./docs/claude-code.md)。

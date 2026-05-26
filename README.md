@@ -67,7 +67,7 @@ horsewhip 做三件事：
 ```bash
 cd /path/to/your-project    # 你的业务仓库根目录，不是 horsewhip 仓库
 
-curl -fsSL https://raw.githubusercontent.com/waitamomentC/horsewhip/experiment/per-folder-version/protocol/scripts/install-claude-horsewhip.sh | bash -s -- .
+curl -fsSL https://raw.githubusercontent.com/waitamomentC/horsewhip/main/protocol/scripts/install-claude-horsewhip.sh | bash -s -- .
 ```
 
 | 安装结果 | 位置 |
@@ -85,7 +85,7 @@ curl -fsSL https://raw.githubusercontent.com/waitamomentC/horsewhip/experiment/p
 ```bash
 cd /path/to/your-project
 curl -fsSL -o AGENTS.md \
-  "https://raw.githubusercontent.com/waitamomentC/horsewhip/experiment/per-folder-version/protocol/AGENTS.md"
+  "https://raw.githubusercontent.com/waitamomentC/horsewhip/main/protocol/AGENTS.md"
 ```
 
 在 Cursor **Rules** 固定引用 `@AGENTS.md`，或对话里 `@AGENTS.md`。
@@ -255,7 +255,7 @@ git log --all -200 --name-only --pretty=format:"%H|%P|%D|%an|%ad|%s"
 
 - **横轴 Cn**：全仓库第几次上传（commit），右端更新
 - **纵轴**：文件夹 / 文件泳道；**⎇** 行 = 某条实验分支触及的路径
-- **泳道 Vn**（实验分支 `experiment/per-folder-version`）：该文件夹自己的第几版，仅在它被改动时 +1
+- **泳道 Vn**（每文件夹独立版本）：该文件夹自己的第几版，仅在它被改动时 +1
 - **挥鞭 / 扫光**：划定边界、发起融合时的反馈，不是装饰
 
 设计规范：[`DESIGN.md`](./DESIGN.md)
@@ -275,9 +275,9 @@ git log --all -200 --name-only --pretty=format:"%H|%P|%D|%an|%ad|%s"
 
 | 项 | 说明 |
 |----|------|
+| **默认分支** | **`main`**（`experiment/per-folder-version` 已合并进来） |
 | 插件版本 | `extension/package.json`，当前 **0.7.0**（打包时 patch 递增：`0.7.1`、`0.7.2` …） |
-| 协议 | [protocol/AGENTS.md](./protocol/AGENTS.md) v0.7 |
-| 功能分支 | `experiment/per-folder-version` 等可能含泳道实验特性；**用户协议安装 URL 默认 `main`** |
+| 协议 | [protocol/AGENTS.md](./protocol/AGENTS.md) v0.7 · 安装 URL 用 `main` |
 
 ---
 
@@ -304,4 +304,4 @@ git log --all -200 --name-only --pretty=format:"%H|%P|%D|%an|%ad|%s"
 
 [GNU AGPL-3.0](./LICENSE)
 
-*最后更新：2026-05-27 · 用户操作见 [用户操作指南](#用户操作指南按顺序做)*
+*最后更新：2026-05-27 · `main` 已包含 per-folder Vn、protocol、守门 · [用户操作指南](#用户操作指南按顺序做)*
