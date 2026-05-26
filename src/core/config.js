@@ -26,11 +26,15 @@ const CONFIG = {
 };
 
 const ROOT_BUCKET = '__root__';
-/** experiment/per-folder-version: each folder swimlane has its own V1, V2… */
 const PER_LANE_VERSION = true;
+/** Left sidebar branch list (git branch names) — off; use graph nodes instead */
+const BRANCH_RAIL_ENABLED = false;
+/** Multi-select branch fusion UI */
+const BRANCH_FUSION_ENABLED = false;
+/** Top "本次边界" bar */
+const BOUNDARY_BAR_ENABLED = false;
 const LANE_LAYOUT_KEY = 'hw-lane-layout';
 const WHIP_SOUND_MUTE_KEY = 'horsewhip:whip-sound-muted';
-/** Drop your file at media/whip-crack.mp3 (or .wav / .ogg); see media/README.md */
 const WHIP_CRACK_AUDIO_DEFAULT = 'media/whip-crack.mp3';
 const LANE_LAYOUT_GROUPED = 'grouped';
 const LANE_LAYOUT_FLAT = 'flat';
@@ -41,11 +45,13 @@ const CONFIG_BASENAMES = /^(package-lock\.json|package\.json|tsconfig\.json|jsco
 const ICON_SIZE = 5;
 const VERSION_STEP_ICON_SCALE = 0.5;
 const ICON_HIT_PAD = 4;
-
+const LANE_VIEW_OVERSCAN = 4;
 
 Object.assign(hw, {
-  CONFIG, ROOT_BUCKET, PER_LANE_VERSION, LANE_LAYOUT_KEY, WHIP_SOUND_MUTE_KEY,
-  WHIP_CRACK_AUDIO_DEFAULT, LANE_LAYOUT_GROUPED, LANE_LAYOUT_FLAT, LANE_HUES,
+  CONFIG, ROOT_BUCKET, PER_LANE_VERSION,
+  BRANCH_RAIL_ENABLED, BRANCH_FUSION_ENABLED, BOUNDARY_BAR_ENABLED,
+  LANE_LAYOUT_KEY, WHIP_SOUND_MUTE_KEY, WHIP_CRACK_AUDIO_DEFAULT,
+  LANE_LAYOUT_GROUPED, LANE_LAYOUT_FLAT, LANE_HUES,
   CODE_FILE_RE, CONFIG_FILE_RE, CONFIG_BASENAMES, ICON_SIZE, VERSION_STEP_ICON_SCALE,
   ICON_HIT_PAD, LANE_VIEW_OVERSCAN,
 });

@@ -92,8 +92,8 @@ function showTooltipForNode(node, anchorRect) {
     : node.isMergeAnchor || node.isMergeLanding
       ? (hw.PER_LANE_VERSION ? '沿分支泳道合入（横轴为上传 Cn）' : '沿分支泳道合入该版本列')
       : node.isFolderAggregate
-        ? '单击选中文件夹边界 · 双击详情 · 点小马鞭复制'
-        : '单击切换选中 · 双击详情 · 点小马鞭复制';
+        ? '单击选中文件夹边界 · 双击详情 · 点 horsewhip 复制'
+        : '单击切换选中 · 双击详情 · 点 horsewhip 复制';
   const accent = node.lane?.color || '#6d7ce8';
   const verLine = subj ? `${ver} · ${subj}` : ver;
   if (!hw.els.tooltip) return;
@@ -156,6 +156,7 @@ function bindFileNodePointer(g, node) {
 }
 
 function initGraphViewportEvents() {
+  if (!hw.els.graphViewport) return;
   if (hw.els.graphViewport.dataset.hwBound) return;
   hw.els.graphViewport.dataset.hwBound = '1';
 

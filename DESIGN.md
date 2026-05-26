@@ -47,7 +47,7 @@ spacing:
 
 ## Overview
 
-马鞭是 **开发者工具**，不是营销页。视觉参考 [Linear](https://linear.app)（来自 [awesome-design-md](https://github.com/VoltAgent/awesome-design-md)），核心：
+horsewhip 是 **开发者工具**，不是营销页。视觉参考 [Linear](https://linear.app)（来自 [awesome-design-md](https://github.com/VoltAgent/awesome-design-md)），核心：
 
 - **Canvas** `#010102` — 近黑底，带极淡蓝调
 - **Surface ladder** — 文件栏 / 面板用 `#0f1011`，hairline 边框 `#23252a`

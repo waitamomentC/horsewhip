@@ -1,4 +1,4 @@
-# 马鞭 (Horsewhip) — 完整产品计划
+# horsewhip (Horsewhip) — 完整产品计划
 
 > **讽刺标语**：For that horse that keeps trampling your codebase  
 > **策略**：先用 **网页 MVP** 验证需求与传播力 → 有信号再投入 **IDE 插件完整版**  
@@ -8,12 +8,12 @@
 
 ## 0. 产品愿景（终态）
 
-> **定位摘要**（对外文案见 [`README.md`](./README.md)）：马鞭为 **AI 协作** 而生，是边界可视化与收束方案，**不是** GitGraph / 传统 Git 客户端；刻意降低 Git 专业术语，强化「划边界 → 融合回主泳道」。
+> **定位摘要**（对外文案见 [`README.md`](./README.md)）：horsewhip 为 **AI 协作** 而生，是边界可视化与收束方案，**不是** GitGraph / 传统 Git 客户端；刻意降低 Git 专业术语，强化「划边界 → 融合回主泳道」。
 
 用户在 Cursor / Claude Code 等 vibe coding 环境里对 AI 说：「改 A 文件，做 xxx」。  
-AI 却悄悄改了 A、B、C。马鞭的职责是 **锁死文件边界**：
+AI 却悄悄改了 A、B、C。horsewhip 的职责是 **锁死文件边界**：
 
-| 时机 | 马鞭做什么 |
+| 时机 | horsewhip 做什么 |
 |------|------------|
 | **事前** | 生成约束 prompt：`只允许修改：A` |
 | **事后**（完整版） | 检测 diff 越界 → 生成纠正 prompt：`用户仅要求 A，请 revert B、C` |
@@ -358,7 +358,7 @@ horsewhip-extension/
 ```
 用户：改 A
 AI 实际改了：A, B, C
-马鞭：越界！→ 生成纠正 prompt，可选 block commit
+horsewhip：越界！→ 生成纠正 prompt，可选 block commit
 ```
 
 ### 5.2 核心逻辑（不复杂）
@@ -458,7 +458,7 @@ if (overreach.length) {
 **单文件（点击节点 / 声明目标）**
 
 ```
-【马鞭 · 文件边界约束】
+【horsewhip · 文件边界约束】
 只允许修改：src/a.ts
 禁止修改仓库内其他任何文件。
 若必须改动其他文件，请先停下并说明理由，待确认后再继续。
@@ -467,7 +467,7 @@ if (overreach.length) {
 **多文件（点击连接线 / 历史共变）**
 
 ```
-【马鞭 · 文件边界约束】
+【horsewhip · 文件边界约束】
 允许修改：src/a.ts, src/b.ts, src/types.ts
 （以上文件在该仓库历史中常于同一 commit 内共变）
 禁止修改上述范围以外的文件。
@@ -491,7 +491,7 @@ git reset --hard abc123f
 **越界纠正（Phase 3）**
 
 ```
-【马鞭 · 越界纠正】
+【horsewhip · 越界纠正】
 用户明确要求只修改：src/a.ts
 检测到额外改动：src/b.ts, src/c.ts
 请立即 revert src/b.ts 和 src/c.ts 的变更，仅保留对 src/a.ts 的修改。

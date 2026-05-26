@@ -1,6 +1,9 @@
 import { hw } from '../core/hw.js';
 
 export function bootstrap() {
+  if (hw.isPluginHost() && hw.state.workspaceFiles == null) {
+    hw.state.workspaceFiles = [];
+  }
   hw.els.btnGenerate?.addEventListener('click', () => {
     const text = hw.els.logInput?.value?.trim() ?? '';
     if (!text) { hw.showError('paste log or load demo'); return; }
@@ -62,7 +65,7 @@ export function bootstrap() {
   });
 
   hw.els.cmdChip?.addEventListener('click', () => {
-    copyText('git log --all -100 --name-only --pretty=format:"%H|%P|%D|%an|%ad|%s"', hw.els.cmdChip);
+    hw.copyText('git log --all -100 --name-only --pretty=format:"%H|%P|%D|%an|%ad|%s"', hw.els.cmdChip);
   });
 
   if (hw.els.zoomLabel) hw.els.zoomLabel.textContent = '100%';
@@ -103,6 +106,11 @@ export function bootstrap() {
   hw.els.fileRailInner?.addEventListener('scroll', onFileRailScroll, { passive: true });
   hw.els.fileRail?.addEventListener('scroll', onFileRailScroll, { passive: true });
 
+  if (!hw.els.graphViewport) {
+    console.error('[Horsewhip] #graph-viewport missing — plugin HTML out of date?');
+    return;
+  }
+
   hw.els.graphViewport.addEventListener('wheel', (e) => {
     if (!hw.state.parsed) return;
     e.preventDefault();
@@ -132,26 +140,26 @@ export function bootstrap() {
   hw.wireBoundaryBar();
   hw.wireFuseBar();
 
-  hw.els.modalClose.addEventListener('click', hw.closeModal);
-  hw.els.modalBackdrop.addEventListener('click', (e) => {
+  hw.els.modalClose?.addEventListener('click', hw.closeModal);
+  hw.els.modalBackdrop?.addEventListener('click', (e) => {
     if (e.target === hw.els.modalBackdrop) hw.closeModal();
   });
 
-  hw.els.btnCopyConstraint.addEventListener('click', () => copyText(hw.els.modalConstraint.textContent, hw.els.btnCopyConstraint));
-  hw.els.btnCopyCheckout.addEventListener('click', () => copyText(hw.els.modalCmdFile.textContent, hw.els.btnCopyCheckout));
-  hw.els.btnToggleReset.addEventListener('click', () => {
+  hw.els.btnCopyConstraint?.addEventListener('click', () => hw.copyText(hw.els.modalConstraint.textContent, hw.els.btnCopyConstraint));
+  hw.els.btnCopyCheckout?.addEventListener('click', () => hw.copyText(hw.els.modalCmdFile.textContent, hw.els.btnCopyCheckout));
+  hw.els.btnToggleReset?.addEventListener('click', () => {
     const hidden = hw.els.rollbackDanger.hidden;
     hw.els.rollbackDanger.hidden = !hidden;
     hw.els.btnToggleReset.textContent = hidden ? 'hide' : 'confirm';
   });
-  hw.els.resetConfirm.addEventListener('input', () => {
+  hw.els.resetConfirm?.addEventListener('input', () => {
     hw.els.btnCopyReset.disabled = hw.els.resetConfirm.value.trim() !== 'RESET';
   });
-  hw.els.btnCopyReset.addEventListener('click', () => {
-    if (hw.els.resetConfirm.value.trim() === 'RESET') copyText(hw.els.modalCmdReset.textContent, hw.els.btnCopyReset);
+  hw.els.btnCopyReset?.addEventListener('click', () => {
+    if (hw.els.resetConfirm.value.trim() === 'RESET') hw.copyText(hw.els.modalCmdReset.textContent, hw.els.btnCopyReset);
   });
-  hw.els.btnCopyLink.addEventListener('click', () => {
-    copyText(hw.els.linkPanel.dataset.constraint || hw.els.linkConstraintText.textContent, hw.els.btnCopyLink);
+  hw.els.btnCopyLink?.addEventListener('click', () => {
+    hw.copyText(hw.els.linkPanel.dataset.constraint || hw.els.linkConstraintText.textContent, hw.els.btnCopyLink);
   });
 
   document.addEventListener('keydown', (e) => {
@@ -181,15 +189,18 @@ export function bootstrap() {
     }
     if (e.target.closest('#tooltip')) return;
     if (e.target.closest('#hw-whip-float')) return;
+    if (e.target.closest('#file-rail') || e.target.closest('.file-rail')) return;
+    if (e.target.closest('#plugin-bar') || e.target.closest('.plugin-bar')) return;
     if (hw.els.graphSvg?.contains(e.target)) return;
     if (!e.target.closest('.link-segment') && !e.target.closest('#link-panel')) {
       hw.hideTooltip();
-      if (!hw.els.modalBackdrop.hidden) return;
-      hw.state.selectedLink = null;
-      hw.state.selectedNodeIds.clear();
-      hw.state.lastSelectedNodeId = null;
-      hw.state.boundaryFiles.clear();
-      hw.els.linkPanel.hidden = true;
+        if (hw.els.modalBackdrop && !hw.els.modalBackdrop.hidden) return;
+        hw.state.selectedLink = null;
+        hw.state.selectedNodeIds.clear();
+        hw.state.lastSelectedNodeId = null;
+        hw.state.boundaryFiles.clear();
+        if (hw.els.linkPanel) hw.els.linkPanel.hidden = true;
+      hw.syncBoundaryBar();
       hw.updateSelectionVisuals();
     }
   });

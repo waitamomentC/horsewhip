@@ -32,7 +32,7 @@ function fusionBoundaryFiles() {
 }
 
 function buildBranchFusionPrompt() {
-  const names = [...state.selectedBranchNames].sort((a, b) => a.localeCompare(b));
+  const names = [...hw.state.selectedBranchNames].sort((a, b) => a.localeCompare(b));
   if (names.length < 2) return '';
   const main = hw.mainBranchName();
   const parsed = hw.state.parsed;
@@ -53,9 +53,9 @@ function buildBranchFusionPrompt() {
     ? allFiles.join(', ')
     : '（请根据各分支 diff 自行确定）';
 
-  return `【马鞭 · AI 多分支融合】
+  return `【horsewhip · AI 多分支融合】
 
-目标：以下 ${names.length} 条实验分支各自都有可取之处，请把它们**择优融合**回主泳道 **${main}**，形成一个新的统一版本；完成后我会在马鞭主泳道上继续观察（本工具为 AI 边界收束，非 Git 拓扑图）。
+目标：以下 ${names.length} 条实验分支各自都有可取之处，请把它们**择优融合**回主泳道 **${main}**，形成一个新的统一版本；完成后我会在 horsewhip 主泳道上继续观察（本工具为 AI 边界收束，非 Git 拓扑图）。
 
 待融合分支（请保留各分支上「还可以」的实现，不要简单用某一版全覆盖）：
 ${blocks}
@@ -108,7 +108,7 @@ function crackWhipOnFusion(btnEl) {
   const crackTarget = btnEl?.closest?.('.hw-fuse-bar') || btnEl;
   crackTarget?.classList.add('hw-fuse-bar--crack');
   hw.runFusionPulseAnim();
-  copyText(text);
+  hw.copyText(text);
   hw.showCopyToast(`已复制 ${hw.state.selectedBranchNames.size} 条分支的融合任务 · 粘贴到 Chat`);
   setTimeout(() => crackTarget?.classList.remove('hw-fuse-bar--crack'), 520);
 }
@@ -120,11 +120,16 @@ function insertBranchFusionToChat() {
   if (window.HorsewhipPluginBridge?.insertBoundaryToChat) {
     window.HorsewhipPluginBridge.insertBoundaryToChat(text);
   } else {
-    copyText(text, hw.els.btnFuseChat);
+    hw.copyText(text, hw.els.btnFuseChat);
   }
 }
 
 function syncFuseBar() {
+  if (!hw.BRANCH_FUSION_ENABLED || !hw.BRANCH_RAIL_ENABLED) {
+    if (hw.state.selectedBranchNames.size) hw.state.selectedBranchNames.clear();
+    if (hw.els.fuseBar) hw.els.fuseBar.hidden = true;
+    return;
+  }
   const n = hw.state.selectedBranchNames.size;
   const show = n >= 2;
   if (hw.els.fuseBar) hw.els.fuseBar.hidden = !show;
@@ -132,8 +137,8 @@ function syncFuseBar() {
     hw.els.fuseCount.textContent = show ? `已选 ${n} 条分支` : '';
   }
   if (hw.els.fuseNames) {
-    hw.els.fuseNames.textContent = show ? [...state.selectedBranchNames].sort().join(' · ') : '';
-    hw.els.fuseNames.title = show ? [...state.selectedBranchNames].join('\n') : '';
+    hw.els.fuseNames.textContent = show ? [...hw.state.selectedBranchNames].sort().join(' · ') : '';
+    hw.els.fuseNames.title = show ? [...hw.state.selectedBranchNames].join('\n') : '';
   }
   if (hw.els.btnFuseCopy) hw.els.btnFuseCopy.disabled = !show;
   if (hw.els.btnFuseChat) hw.els.btnFuseChat.disabled = !show;
@@ -149,6 +154,11 @@ function renderBranchRail() {
   const rail = hw.els.branchRail;
   if (!rail) return;
   rail.innerHTML = '';
+  if (!hw.BRANCH_RAIL_ENABLED) {
+    rail.hidden = true;
+    hw.syncFuseBar();
+    return;
+  }
   const list = hw.state.gitBranches || [];
   if (!list.length) {
     rail.hidden = true;

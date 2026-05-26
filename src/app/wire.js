@@ -19,6 +19,10 @@ function ensureFuseWhipButton() {
 }
 
 function wireFuseBar() {
+  if (!hw.BRANCH_FUSION_ENABLED) {
+    if (hw.els.fuseBar) hw.els.fuseBar.hidden = true;
+    return;
+  }
   hw.ensureFuseWhipButton();
   if (hw.els.btnFuseChat && !hw.isPluginHost()) {
     hw.els.btnFuseChat.textContent = '复制融合任务';
@@ -50,7 +54,7 @@ function wireBoundaryBar() {
     if (window.HorsewhipPluginBridge?.insertBoundaryToChat) {
       window.HorsewhipPluginBridge.insertBoundaryToChat(text);
     } else {
-      copyText(text, hw.els.btnBoundaryChat);
+      hw.copyText(text, hw.els.btnBoundaryChat);
     }
   });
   hw.syncBoundaryBar();

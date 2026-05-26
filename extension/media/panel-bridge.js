@@ -167,6 +167,55 @@
     vscode.postMessage({ type: 'openExternalUrl', url: target });
   }
 
+  function applyGuardStatus(msg) {
+    const statusEl = document.getElementById('plugin-guard-status');
+    const btnCorrect = document.getElementById('btn-guard-correct');
+    const btnRevert = document.getElementById('btn-guard-revert');
+    if (!statusEl) return;
+    statusEl.className = 'plugin-guard__status';
+    if (!msg.hasBoundary) {
+      statusEl.classList.add('plugin-guard__status--idle');
+      statusEl.textContent = '守门 · 未划定';
+      if (btnCorrect) btnCorrect.hidden = true;
+      if (btnRevert) btnRevert.hidden = true;
+      return;
+    }
+    if (msg.hookInstalled === false && msg.ok) {
+      statusEl.classList.add('plugin-guard__status--warn');
+      const label = (msg.allowed || [])[0] || '边界';
+      statusEl.textContent = `守门 · ${label}（未装 hook）`;
+      statusEl.title = '请运行命令：Horsewhip: Install Git Pre-Commit Guard Hook';
+      if (btnCorrect) btnCorrect.hidden = true;
+      if (btnRevert) btnRevert.hidden = true;
+      return;
+    }
+    if (msg.ok) {
+      statusEl.classList.add('plugin-guard__status--ok');
+      statusEl.textContent = msg.actualCount
+        ? `守门 · 边界内 (${msg.actualCount})`
+        : '守门 · 边界内';
+      if (btnCorrect) btnCorrect.hidden = true;
+      if (btnRevert) btnRevert.hidden = true;
+      return;
+    }
+    statusEl.classList.add('plugin-guard__status--over');
+    statusEl.textContent = `守门 · 越界 ${(msg.overreach || []).length}`;
+    if (btnCorrect) btnCorrect.hidden = false;
+    if (btnRevert) btnRevert.hidden = false;
+  }
+
+  function wireGuardBar() {
+    document.getElementById('btn-guard-check')?.addEventListener('click', () => {
+      if (vscode) vscode.postMessage({ type: 'guardCheck' });
+    });
+    document.getElementById('btn-guard-correct')?.addEventListener('click', () => {
+      if (vscode) vscode.postMessage({ type: 'guardInsertCorrection' });
+    });
+    document.getElementById('btn-guard-revert')?.addEventListener('click', () => {
+      if (vscode) vscode.postMessage({ type: 'guardRevertOverreach' });
+    });
+  }
+
   function wirePluginBar() {
     document.getElementById('btn-commit-open')?.addEventListener('click', () => {
       if (vscode) {
@@ -234,9 +283,120 @@
     });
   }
 
+  const pendingAppMessages = [];
+  const APP_WAIT_MS = 20000;
+
+  function hideGraphEmpty() {
+    const empty = document.getElementById('graph-empty');
+    if (empty) empty.classList.add('hidden');
+    const hint = document.getElementById('graph-hint');
+    if (hint) hint.hidden = false;
+    const zoom = document.getElementById('graph-zoom');
+    if (zoom) zoom.hidden = false;
+  }
+
+  function showGraphBootError(text) {
+    const empty = document.getElementById('graph-empty');
+    if (!empty) return;
+    empty.classList.remove('hidden');
+    const title = empty.querySelector('.graph-empty__title');
+    const desc = empty.querySelector('.graph-empty__desc');
+    if (title) title.textContent = 'horsewhip 未能启动';
+    if (desc) desc.textContent = text || '请重新加载窗口（Developer: Reload Window）';
+  }
+
+  function needsHorsewhipApp(msg) {
+    return msg.type === 'loadLog'
+      || msg.type === 'loadDemo'
+      || msg.type === 'setWorkspaceFiles'
+      || msg.type === 'setGitBranches';
+  }
+
+  function dispatchToHorsewhipApp(msg) {
+    if (!window.HorsewhipApp) return false;
+
+    if (msg.type === 'loadLog' && msg.log) {
+      hideCommitPrompt();
+      try {
+        window.HorsewhipApp.loadLog(msg.log);
+        hideGraphEmpty();
+      } catch (err) {
+        showGraphBootError(err?.message || String(err));
+      }
+      return true;
+    }
+    if (msg.type === 'loadDemo') {
+      hideCommitPrompt();
+      try {
+        window.HorsewhipApp.loadDemo();
+        hideGraphEmpty();
+      } catch (err) {
+        showGraphBootError(err?.message || String(err));
+      }
+      return true;
+    }
+    if (msg.type === 'setWorkspaceFiles') {
+      window.HorsewhipApp.setWorkspaceFiles(msg.paths);
+      return true;
+    }
+    if (msg.type === 'setGitBranches') {
+      window.HorsewhipApp.setGitBranches(msg.branches, msg.currentBranch);
+      return true;
+    }
+    return false;
+  }
+
+  function flushPendingAppMessages() {
+    if (!window.HorsewhipApp) return;
+    while (pendingAppMessages.length) {
+      dispatchToHorsewhipApp(pendingAppMessages.shift());
+    }
+  }
+
+  function whenHorsewhipAppReady(onReady) {
+    const done = () => {
+      if (window.__horsewhipBootError) {
+        showGraphBootError(window.__horsewhipBootError);
+      } else if (window.HorsewhipApp) {
+        flushPendingAppMessages();
+      } else {
+        showGraphBootError('脚本未加载完成。请执行 Reload Window，并确认 extension/media/script.js 已同步。');
+      }
+      if (typeof onReady === 'function') onReady();
+    };
+
+    if (window.HorsewhipApp || window.__horsewhipBootError) {
+      done();
+      return;
+    }
+
+    const onAppReady = () => {
+      window.removeEventListener('horsewhip-app-ready', onAppReady);
+      clearInterval(timer);
+      done();
+    };
+    window.addEventListener('horsewhip-app-ready', onAppReady);
+
+    const t0 = Date.now();
+    const timer = setInterval(() => {
+      if (window.HorsewhipApp || window.__horsewhipBootError) {
+        onAppReady();
+        return;
+      }
+      if (Date.now() - t0 > APP_WAIT_MS) {
+        onAppReady();
+      }
+    }, 20);
+  }
+
   function onMessage(event) {
     const msg = event.data;
     if (!msg) return;
+
+    if (msg.type === 'guardStatus') {
+      applyGuardStatus(msg);
+      return;
+    }
 
     if (msg.type === 'repoStatus') {
       applyRepoStatus(msg);
@@ -295,30 +455,15 @@
       if (err) err.textContent = '';
     }
 
-    if (!window.HorsewhipApp) return;
+    if (needsHorsewhipApp(msg)) {
+      if (!window.HorsewhipApp && !window.__horsewhipBootError) {
+        pendingAppMessages.push(msg);
+        return;
+      }
+      dispatchToHorsewhipApp(msg);
+      return;
+    }
 
-    if (msg.type === 'loadLog' && msg.log) {
-      hideCommitPrompt();
-      window.HorsewhipApp.loadLog(msg.log);
-      const empty = document.getElementById('graph-empty');
-      if (empty) empty.classList.add('hidden');
-      const hint = document.getElementById('graph-hint');
-      if (hint) hint.hidden = false;
-      const zoom = document.getElementById('graph-zoom');
-      if (zoom) zoom.hidden = false;
-    }
-    if (msg.type === 'loadDemo') {
-      hideCommitPrompt();
-      window.HorsewhipApp.loadDemo();
-      const empty = document.getElementById('graph-empty');
-      if (empty) empty.classList.add('hidden');
-    }
-    if (msg.type === 'setWorkspaceFiles') {
-      window.HorsewhipApp.setWorkspaceFiles(msg.paths);
-    }
-    if (msg.type === 'setGitBranches') {
-      window.HorsewhipApp.setGitBranches(msg.branches, msg.currentBranch);
-    }
     if (window.HorsewhipRemoteWizard) {
       window.HorsewhipRemoteWizard.onMessage(msg);
     }
@@ -329,8 +474,11 @@
   function boot() {
     wireRollbackButtons();
     wireCommitPrompt();
+    wireGuardBar();
     wirePluginBar();
-    if (vscode) vscode.postMessage({ type: 'ready' });
+    whenHorsewhipAppReady(() => {
+      if (vscode) vscode.postMessage({ type: 'ready' });
+    });
   }
 
   if (document.readyState === 'loading') {

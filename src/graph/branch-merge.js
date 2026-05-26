@@ -56,8 +56,7 @@ function findCoMergeLanding(seg, parsed) {
     if (!parsed.mainlineSet.has(c.hash)) return;
     const branchParent = c.parents[1];
     if (!branchParent) return;
-    if (branchParent !== tip.hash && !hw.isReachableFrom(branchParent, tip.hash, parsed.commitMap)) return;
-    if (!hw.isReachableFrom(tip.hash, c.hash, parsed.commitMap)) return;
+    if (!hw.segmentOwnsMergeCommit(seg, c, seg.commits, parsed)) return;
     const col = c.versionIndex ?? c.displayColumn;
     if (!best || col < best.column) best = { commit: c, column: col };
   });
@@ -75,10 +74,34 @@ function branchSegmentJoinColumn(seg, parsed) {
   return tip ? (tip.versionIndex ?? tip.displayColumn) : null;
 }
 
+/** True when this segment (not a cousin branch) is what the merge commit brought in. */
+function segmentOwnsMergeCommit(seg, mergeCommit, chain, parsed) {
+  if (!mergeCommit?.parents || mergeCommit.parents.length < 2) return false;
+  const bp = mergeCommit.parents[1];
+  const chainSet = new Set((chain || seg.commits || []).map((c) => c.hash));
+  if (!chainSet.has(bp)) return false;
+  const commits = chain || seg.commits || [];
+  const tip = commits[commits.length - 1];
+  if (tip && bp === tip.hash) return true;
+  const mergeCol = mergeCommit.versionIndex ?? mergeCommit.displayColumn ?? 0;
+  let tipAtMerge = null;
+  commits.forEach((c) => {
+    const col = c.versionIndex ?? c.displayColumn ?? 0;
+    if (col > mergeCol) return;
+    if (!tipAtMerge || col >= (tipAtMerge.versionIndex ?? tipAtMerge.displayColumn)) tipAtMerge = c;
+  });
+  if (tipAtMerge && bp === tipAtMerge.hash) return true;
+  const name = seg?.name || seg?.id;
+  if (!name) return false;
+  if (hw.commitBelongsToBranch(mergeCommit, name)) return true;
+  const bpCommit = parsed.commitMap[bp];
+  return Boolean(bpCommit && hw.commitBelongsToBranch(bpCommit, name));
+}
+
 function segmentOwnsMerge(seg, parsed) {
   const mc = seg.mergeHash && parsed.commitMap[seg.mergeHash];
-  if (!mc || mc.parents.length < 2) return false;
-  return seg.commitSet.has(mc.parents[1]);
+  if (!mc) return false;
+  return hw.segmentOwnsMergeCommit(seg, mc, seg.commits, parsed);
 }
 
 function shouldDrawMergeIntoParent(seg, parsed) {
@@ -189,6 +212,7 @@ Object.assign(hw, {
   coMergeLookupTip,
   findCoMergeLanding,
   branchSegmentJoinColumn,
+  segmentOwnsMergeCommit,
   segmentOwnsMerge,
   shouldDrawMergeIntoParent,
   branchSegmentLandingCommit,

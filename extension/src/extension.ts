@@ -1,9 +1,11 @@
 import * as vscode from 'vscode';
+import { registerBoundaryGuard } from './boundaryGuardHost';
 import { HorsewhipLauncherProvider } from './horsewhipLauncher';
 import { HorsewhipPanel } from './horsewhipPanel';
 import { ensureWorkspaceReady } from './workspaceGate';
 
 export function activate(context: vscode.ExtensionContext): void {
+  registerBoundaryGuard(context);
   const launcher = new HorsewhipLauncherProvider(context.extensionUri);
 
   context.subscriptions.push(

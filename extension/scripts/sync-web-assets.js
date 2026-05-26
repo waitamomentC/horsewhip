@@ -9,6 +9,7 @@ const root = path.resolve(__dirname, '../..');
 const media = path.resolve(__dirname, '../media');
 
 const files = ['script.js', 'style.css', 'demo-data.js'];
+const guardScript = 'pre-commit-guard.mjs';
 const whipAudioNames = ['whip-crack.mp3', 'whip-crack.wav', 'whip-crack.ogg', 'whip-crack.m4a'];
 
 if (!fs.existsSync(media)) fs.mkdirSync(media, { recursive: true });
@@ -19,6 +20,11 @@ for (const name of files) {
   fs.copyFileSync(src, dest);
   console.log(`synced ${name} → extension/media/${name}`);
 }
+
+const guardSrc = path.join(__dirname, guardScript);
+const guardDest = path.join(media, guardScript);
+fs.copyFileSync(guardSrc, guardDest);
+console.log(`synced scripts/${guardScript} → extension/media/${guardScript}`);
 
 const mediaSrc = path.join(root, 'media');
 for (const name of whipAudioNames) {

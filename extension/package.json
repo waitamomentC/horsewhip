@@ -2,7 +2,7 @@
   "name": "horsewhip",
   "displayName": "Horsewhip",
   "description": "Git file timeline · GitHub SSH publish · workspace git only",
-  "version": "0.6.0-ve.0",
+  "version": "0.7.1",
   "publisher": "horsewhip",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -79,8 +79,66 @@
         "command": "horsewhip.commit",
         "title": "Horsewhip: Commit Changes",
         "icon": "$(git-commit)"
+      },
+      {
+        "command": "horsewhip.checkBoundary",
+        "title": "Horsewhip: Check Boundary (Guard)",
+        "icon": "$(shield)"
+      },
+      {
+        "command": "horsewhip.insertCorrection",
+        "title": "Horsewhip: Insert Overreach Correction to Chat",
+        "icon": "$(warning)"
+      },
+      {
+        "command": "horsewhip.revertOverreach",
+        "title": "Horsewhip: Revert Overreach Files",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "horsewhip.installCommitHook",
+        "title": "Horsewhip: Install Git Pre-Commit Guard Hook",
+        "icon": "$(shield)"
       }
     ],
+    "configuration": {
+      "title": "Horsewhip",
+      "properties": {
+        "horsewhip.guard.onSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "保存文件时自动检查工作区改动是否超出 horsewhip 划定的边界。"
+        },
+        "horsewhip.guard.mode": {
+          "type": "string",
+          "enum": [
+            "warn",
+            "strict"
+          ],
+          "default": "warn",
+          "enumDescriptions": [
+            "越界时轻量通知，可点「插入纠正」",
+            "保存时若越界则弹出完整处理对话框"
+          ],
+          "description": "守门严格程度。"
+        },
+        "horsewhip.guard.blockCommit": {
+          "type": "boolean",
+          "default": true,
+          "description": "已划定边界且存在越界时，拦截 horsewhip 内提交与 git pre-commit。"
+        },
+        "horsewhip.guard.blockCommitWithoutBoundary": {
+          "type": "boolean",
+          "default": true,
+          "description": "未在泳道划边界时拦截 commit（推荐开启，避免误以为已守门）。"
+        },
+        "horsewhip.guard.installHookOnOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "打开工作区时自动安装 .git/hooks/pre-commit 守门脚本。"
+        }
+      }
+    },
     "menus": {
       "commandPalette": [
         {
@@ -97,6 +155,18 @@
         },
         {
           "command": "horsewhip.commit"
+        },
+        {
+          "command": "horsewhip.checkBoundary"
+        },
+        {
+          "command": "horsewhip.insertCorrection"
+        },
+        {
+          "command": "horsewhip.revertOverreach"
+        },
+        {
+          "command": "horsewhip.installCommitHook"
         }
       ]
     }
@@ -106,7 +176,8 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "sync-assets": "node ./scripts/sync-web-assets.js",
-    "package": "npm run sync-assets && npm run compile && vsce package --no-dependencies",
+    "bump:build": "node ./scripts/bump-build.mjs",
+    "package": "npm run bump:build && npm run sync-assets && npm run compile && vsce package --no-dependencies",
     "bump:patch": "npm version patch --no-git-tag-version",
     "bump:minor": "npm version minor --no-git-tag-version"
   },

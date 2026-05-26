@@ -39,6 +39,11 @@ function appendFileRailRow(lane) {
     const label = document.createElement('span');
     label.className = 'file-rail__label';
     label.textContent = hw.truncatePath(lane.label);
+    if (lane.color) {
+      const c = lane.color;
+      chev.style.color = c;
+      label.style.color = c;
+    }
     row.appendChild(chev);
     row.appendChild(label);
     return row;

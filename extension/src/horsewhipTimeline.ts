@@ -28,7 +28,16 @@ import { checkWorkspace, getWorkspaceFolderName, getWorkspaceRoot } from './work
 import { buildGateHtml, buildTimelineHtml } from './webviewHtml';
 import { watchGitRepository } from './gitWatch';
 import { WorkspaceTerminal } from './workspaceTerminal';
-import { setBoundaryAllowlist } from './boundaryAllowlist';
+import { setBoundaryAllowlist, setBoundaryAllowlistWorkspaceRoot } from './boundaryAllowlist';
+import {
+  assertCommitAllowed,
+  insertCorrectionPrompt,
+  notifyBoundaryArmed,
+  revertOverreachFiles,
+  runBoundaryGuardCheck,
+  setGuardWebviewNotifier,
+} from './boundaryGuardHost';
+import { isHorsewhipPreCommitHookInstalled, installHorsewhipPreCommitHook } from './boundaryGitHook';
 import { insertTextIntoChat } from './chatInsert';
 
 type WebviewInbound =
@@ -50,7 +59,10 @@ type WebviewInbound =
   | { type: 'gateOpenFolder' }
   | { type: 'gateGitInit' }
   | { type: 'setBoundaryAllowlist'; files: string[] }
-  | { type: 'insertBoundaryToChat'; text: string };
+  | { type: 'insertBoundaryToChat'; text: string }
+  | { type: 'guardCheck' }
+  | { type: 'guardInsertCorrection' }
+  | { type: 'guardRevertOverreach' };
 
 export class HorsewhipTimeline {
   private workspaceRoot: string | undefined;
@@ -81,9 +93,15 @@ export class HorsewhipTimeline {
     this.disposables.push(
       this.webview.onDidReceiveMessage((msg: WebviewInbound) => this.onMessage(msg)),
     );
+
+    setGuardWebviewNotifier((payload) => {
+      this.webview.postMessage(payload);
+    });
   }
 
   dispose(): void {
+    setBoundaryAllowlistWorkspaceRoot(undefined);
+    setGuardWebviewNotifier(undefined);
     this.workspaceTerminal?.stop();
     this.workspaceTerminal = undefined;
     this.gitWatchDisposable?.dispose();
@@ -135,6 +153,7 @@ export class HorsewhipTimeline {
       this.gitWatchDisposable?.dispose();
       this.gitWatchDisposable = undefined;
       this.workspaceRoot = undefined;
+      setBoundaryAllowlistWorkspaceRoot(undefined);
       const folder = getWorkspaceRoot();
       this.webview.html = buildGateHtml(
         this.webview,
@@ -145,6 +164,7 @@ export class HorsewhipTimeline {
     }
 
     this.workspaceRoot = state.root;
+    setBoundaryAllowlistWorkspaceRoot(this.workspaceRoot);
     this.projectName = sanitizeRepoName(state.folderName);
     this.webview.html = buildTimelineHtml(
       this.webview,
@@ -152,6 +172,23 @@ export class HorsewhipTimeline {
       state.folderName,
     );
     this.bindWorkspaceFilesWatch();
+    void this.ensureCommitHookInstalled();
+  }
+
+  private async ensureCommitHookInstalled(): Promise<void> {
+    if (!this.workspaceRoot) return;
+    const cfg = vscode.workspace.getConfiguration('horsewhip.guard');
+    if (!cfg.get<boolean>('installHookOnOpen', true)) return;
+    try {
+      if (await isHorsewhipPreCommitHookInstalled(this.workspaceRoot)) return;
+      await installHorsewhipPreCommitHook(this.extensionUri, this.workspaceRoot);
+    } catch (err) {
+      const text = err instanceof Error ? err.message : String(err);
+      console.error('[Horsewhip] pre-commit hook install failed:', err);
+      vscode.window.showErrorMessage(
+        `horsewhip：无法安装 git pre-commit 守门钩子 — ${text}。请运行命令「Horsewhip: Install Git Pre-Commit Guard Hook」。`,
+      );
+    }
   }
 
   async loadFromGit(maxCount = 100): Promise<void> {
@@ -254,6 +291,15 @@ export class HorsewhipTimeline {
 
     await setLocalGitConfig(cwd, 'user.name', name);
     await setLocalGitConfig(cwd, 'user.email', email);
+
+    const mayCommit = await assertCommitAllowed(cwd);
+    if (!mayCommit) {
+      this.webview.postMessage({
+        type: 'commitError',
+        error: '守门拦截：存在越界改动或未完成边界划定。请检查越界后重试。',
+      });
+      return;
+    }
 
     this.webview.postMessage({ type: 'commitStarted' });
     try {
@@ -478,7 +524,28 @@ export class HorsewhipTimeline {
       return;
     }
     if (msg.type === 'setBoundaryAllowlist') {
-      setBoundaryAllowlist(Array.isArray(msg.files) ? msg.files : []);
+      const files = Array.isArray(msg.files) ? msg.files : [];
+      void (async () => {
+        await setBoundaryAllowlist(files);
+        if (!this.workspaceRoot) return;
+        await this.ensureCommitHookInstalled();
+        await notifyBoundaryArmed(this.workspaceRoot, files);
+        await runBoundaryGuardCheck(this.workspaceRoot, { silent: true });
+      })();
+      return;
+    }
+    if (msg.type === 'guardCheck') {
+      if (!this.workspaceRoot) return;
+      await runBoundaryGuardCheck(this.workspaceRoot);
+      return;
+    }
+    if (msg.type === 'guardInsertCorrection') {
+      await insertCorrectionPrompt();
+      return;
+    }
+    if (msg.type === 'guardRevertOverreach') {
+      if (!this.workspaceRoot) return;
+      await revertOverreachFiles(this.workspaceRoot);
       return;
     }
     if (msg.type === 'insertBoundaryToChat') {

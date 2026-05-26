@@ -17,7 +17,7 @@ function selectionLocator(node) {
 
 function constraintSingle(filePath, node) {
   const loc = node ? `\n定位：${hw.selectionLocator(node)}` : '';
-  return `【马鞭 · AI 文件边界】
+  return `【horsewhip · AI 文件边界】
 只允许修改：${filePath}${loc}
 禁止修改仓库内其他任何文件。
 若必须改动其他文件，请先停下并说明理由，待确认后再继续。`;
@@ -25,7 +25,7 @@ function constraintSingle(filePath, node) {
 
 function constraintMulti(files) {
   const list = [...files].sort().join(', ');
-  return `【马鞭 · AI 文件边界】
+  return `【horsewhip · AI 文件边界】
 允许修改：${list}
 （以上文件在该仓库历史中常于同一 commit 内共变）
 禁止修改上述范围以外的文件。`;
@@ -41,7 +41,7 @@ function constraintBoundaryFromNodes(nodes) {
     const scope = folderPath ? '（文件夹，含其下所有路径）' : '';
     return `- ${label}${scope}\n  定位：${hw.selectionLocator(node)}`;
   }).join('\n');
-  return `【马鞭 · AI 文件边界】
+  return `【horsewhip · AI 文件边界】
 本次任务只允许修改以下范围（每条对应一个泳道上的选定版本），不要创建/修改/删除其他任何路径：
 ${lines}
 
@@ -57,7 +57,7 @@ function constraintBoundary(items) {
     }
     return `- ${item}`;
   }).join('\n');
-  return `【马鞭 · AI 文件边界】
+  return `【horsewhip · AI 文件边界】
 本次任务只允许修改以下范围，不要创建/修改/删除其他任何路径：
 ${lines}
 
@@ -67,7 +67,7 @@ ${lines}
 function constraintFolder(folderPath, node) {
   const label = folderPath === hw.ROOT_BUCKET ? '仓库根目录/' : folderPath;
   const loc = node ? `\n定位：${hw.selectionLocator(node)}` : '';
-  return `【马鞭 · AI 文件夹边界】
+  return `【horsewhip · AI 文件夹边界】
 本次任务只允许修改 ${label} 目录下的内容，不要创建/修改/删除该目录以外的任何路径。${loc}
 
 若必须改动其他目录，请先说明理由并等待确认后再继续。`;
@@ -99,17 +99,17 @@ function boundaryPathLabel(path) {
 }
 
 function getBoundaryFilesList() {
-  return [...state.boundaryFiles].sort((a, b) => a.localeCompare(b));
+  return [...hw.state.boundaryFiles].sort((a, b) => a.localeCompare(b));
 }
 
 function getSelectedGraphNodes() {
-  return [...state.selectedNodeIds]
+  return [...hw.state.selectedNodeIds]
     .map((id) => hw.state.nodeIndex[id])
     .filter((n) => n && hw.nodeCanSelect(n));
 }
 
 function clearSelectionOnLane(lanePath, exceptId = null) {
-  for (const id of [...state.selectedNodeIds]) {
+  for (const id of [...hw.state.selectedNodeIds]) {
     if (id === exceptId) continue;
     const other = hw.state.nodeIndex[id];
     if (other?.lanePath === lanePath) hw.state.selectedNodeIds.delete(id);
@@ -159,6 +159,20 @@ function syncBoundaryBar() {
   const files = hw.getBoundaryFilesList();
   const hasSelection = nodeCount > 0;
 
+  if (hw.isPluginHost() && window.HorsewhipPluginBridge?.setBoundaryAllowlist) {
+    window.HorsewhipPluginBridge.setBoundaryAllowlist(hasSelection ? files : []);
+  }
+
+  if (!hw.BOUNDARY_BAR_ENABLED) {
+    if (hw.isPluginHost() && hw.state.catalog?.lanes?.length) {
+      hw.updatePluginBar(hw.state.catalog.lanes.length);
+    }
+    hw.syncFileRailBoundaryHighlight();
+    return;
+  }
+
+  if (hw.els.boundaryBar) hw.els.boundaryBar.hidden = true;
+
   if (hw.els.boundaryBar) hw.els.boundaryBar.hidden = !hasSelection;
   if (hw.els.boundaryCount) {
     hw.els.boundaryCount.textContent = nodeCount === 1 ? '1 个节点' : `${nodeCount} 个节点`;
@@ -173,9 +187,6 @@ function syncBoundaryBar() {
   if (hw.els.btnBoundaryCopy) hw.els.btnBoundaryCopy.disabled = !hasSelection;
   if (hw.els.btnBoundaryChat) hw.els.btnBoundaryChat.disabled = !hasSelection;
 
-  if (hw.isPluginHost() && window.HorsewhipPluginBridge?.setBoundaryAllowlist) {
-    window.HorsewhipPluginBridge.setBoundaryAllowlist(files);
-  }
   if (hw.isPluginHost() && hw.state.catalog?.lanes?.length) {
     hw.updatePluginBar(hw.state.catalog.lanes.length);
   }
@@ -219,7 +230,7 @@ function toggleSelectedNode(node) {
   if (hw.state.selectedNodeIds.has(node.id)) {
     hw.state.selectedNodeIds.delete(node.id);
     if (hw.state.lastSelectedNodeId === node.id) {
-      hw.state.lastSelectedNodeId = [...state.selectedNodeIds].slice(-1)[0] || null;
+      hw.state.lastSelectedNodeId = [...hw.state.selectedNodeIds].slice(-1)[0] || null;
     }
   } else {
     hw.clearSelectionOnLane(node.lanePath, node.id);
@@ -228,6 +239,7 @@ function toggleSelectedNode(node) {
   }
   hw.rebuildBoundaryFromNodes();
   hw.syncBoundaryBar();
+  hw.updateSelectionVisuals();
 }
 
 function folderLaneForSelection(folderPath) {
@@ -365,7 +377,7 @@ function crackWhipOnSelection(nodes, btnEl) {
   crackTarget?.classList.add('hw-whip-btn--crack', 'hw-whip-float--crack');
   hw.playWhipCrackSound();
   const text = nodes.length === 1 ? hw.constraintForNode(nodes[0]) : hw.buildBoundaryPrompt();
-  copyText(text);
+  hw.copyText(text);
   hw.showCopyToast(
     nodes.length === 1
       ? '约束已复制 · 粘贴到 Chat 即可'
@@ -375,7 +387,7 @@ function crackWhipOnSelection(nodes, btnEl) {
 }
 
 function selectedWhipNodes() {
-  return [...state.selectedNodeIds]
+  return [...hw.state.selectedNodeIds]
     .map((id) => hw.state.nodeIndex[id])
     .filter((node) => hw.nodeCanWhip(node));
 }

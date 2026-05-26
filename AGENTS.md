@@ -1,49 +1,79 @@
-# 马鞭协作协议 · Horsewhip AI Protocol
+<!-- 同步自 protocol/AGENTS.md — 只编辑 protocol/AGENTS.md，然后: node protocol/scripts/sync.mjs -->
 
-> **受众**：Cursor、Copilot、Claude Code 等 vibe coding 工具。  
-> **目的**：让 Git 记录与马鞭时间轴一致，避免分支命名混乱导致马鞭难读、难融合。  
-> **原则**：马鞭是 **AI 边界可视化**，不是 Git 专家工具——你用 **简单、统一的 Git 习惯** 喂给它，它才能直观。
+# Horsewhip AI Protocol
 
-### 各工具怎么「自动读到」本协议（不必每次 @）
-
-| 工具 | 放什么文件 | 要不要对话里 @ |
-|------|------------|----------------|
-| **Claude Code** | [`CLAUDE.md`](./CLAUDE.md) + [`.claude/rules/horsewhip-protocol.md`](./.claude/rules/horsewhip-protocol.md) | **不要**，会话启动自动加载 |
-| **Cursor** | 本文件 `AGENTS.md` 或 Rules 里引用 | 建议在 Rules 固定引用，或 `@AGENTS.md` |
-| **用户业务仓库** | 复制规则 + 模板，见 [`docs/claude-code.md`](./docs/claude-code.md) | Claude Code：**不用** |
+> **唯一权威协议**（v0.7）。安装到 **业务项目根目录** 的 `AGENTS.md` 即本文件。  
+> Cursor / Copilot：根目录引用或 `@AGENTS.md`。Claude Code：另见 `.claude/rules/horsewhip-protocol.md`（§ Install）。  
+> 其他 IDE 适配欢迎社区 PR；**不要** fork 第二套铁律。
 
 ---
 
-## 0. 你现在处于哪一步（项目进度）
+## 这是什么（30 秒读完）
 
-| 阶段 | 状态 | 说明 |
-|------|------|------|
-| Phase 1 网页 MVP | ✅ | demo / 粘贴 log、泳道、边界复制 |
-| Phase 2 插件 | 🔄 进行中 | 自动读 log、分支栏、`feature/*` 实验线、多选 **AI 融合 → 主泳道**、边界插入 Chat、allowlist |
-| Phase 3 守门 | ⬜ | 事后 diff 越界检测、纠正 prompt |
-| **本协议** | ✅ 生效 | 约束 **AI 写代码时的 Git 行为**，与马鞭 UI 配套 |
+**horsewhip** 是为 **AI 协作** 设计的 **文件边界可视化**，不是 GitGraph，也不是教用户背 Git 术语的客户端。
 
-- **Claude Code 用户**：按 [`docs/claude-code.md`](./docs/claude-code.md) 复制 `CLAUDE.md` 与 `.claude/rules/`（无需 `@`）。  
-- **Cursor 用户**：在 Rules 引用本 `AGENTS.md`，或对话 `@AGENTS.md`。
+| 你（AI）要做的 | horsewhip 帮人类看的 |
+|----------------|----------------------|
+| 只在边界内改文件 | 哪条泳道、哪一版、哪条实验线 |
+| 用简单统一的 Git 习惯 | 时间轴上的节点与 `feature/*` 分支 |
+| 每轮可验收任务 **commit**（有 origin 则 **push**） | 泳道出现新节点、云端与本地一致 |
+
+**事前**：人类在泳道点节点 → 复制/插入 **边界约束** 到 Chat → 你严格遵守。  
+**事后**（若安装了 horsewhip 插件）：对比 allowlist 与工作区改动 → 越界则纠正，**commit 可被拦截**。
 
 ---
 
-## 1. 铁律（每次任务结束必做）
+## A. 文件边界（先读再做）
 
-### 1.1 必须 commit
+### A.1 边界从哪来
 
-- **每完成一轮用户可验收的修改**（一个明确任务、一个 bug、一次融合），在当次工作结束前 **必须** 创建一次 Git commit。
-- **禁止** 只在工作区留改动不提交——马鞭时间轴依赖 commit 才能在泳道上出现新节点。
-- commit 说明 **必须反映用户实际改了什么**（见 §3），不要写 `update`、`fix`、`wip` 等空泛信息。
+1. 用户在 horsewhip **点选泳道节点**（文件或 `文件夹/` 聚合）。
+2. 顶栏出现 **本次边界**；用户 **挥鞭** 或 **插入 Chat** 的文案形如：
 
-```bash
-git add -A   # 或仅 add 边界内的文件（见马鞭「本次边界」）
-git commit -m "<类型>: <简短说明 — 与用户任务一致>"
+```text
+【horsewhip · AI 文件边界】
+本次任务只允许修改以下范围，不要创建/修改/删除其他任何路径：
+- TA/（文件夹，含其下所有路径）
+  定位：泳道 V3 · C17 · …
+
+若必须改动其他文件，请先说明理由并等待确认后再继续。
 ```
 
-### 1.2 有云端仓库则必须 push
+3. 插件会把边界写入会话 **allowlist**（并持久化到 `.git/horsewhip/allowlist.json`，供 git hook 读取）。
 
-在 commit 之后 **立即检查** 是否已配置远程：
+### A.2 你必须遵守
+
+| 规则 | 说明 |
+|------|------|
+| **只改边界内路径** | 文件路径完全匹配，或落在 `文件夹/` 前缀下 |
+| **先停后扩** | 必须改边界外文件时，**先说明理由，等用户确认**，再继续 |
+| **不夹带** | 不顺手重构、不改无关目录、不更新边界外依赖锁文件（除非用户明确要求） |
+| **与 commit 一致** | 一次 commit 里的文件集合应落在边界内（或用户已扩边界） |
+
+### A.3 没有划边界时
+
+- 以用户 **当次对话描述** 为范围，仍禁止擅自扩大 scope。
+- 若安装了 horsewhip 且开启 `horsewhip.guard.blockCommitWithoutBoundary`，**未划边界可能无法 commit**——应提醒用户先在泳道点节点。
+
+---
+
+## B. Git 铁律（每轮可验收任务结束时）
+
+### B.1 必须 commit
+
+完成 **一个明确、用户可验收的任务**（一个功能、一个 bug、一次融合）后，**在本轮结束前** 必须：
+
+```bash
+git add -A   # 优先只 add 边界内文件；不确定时用 git add <paths>
+git commit -m "<type>: <与用户任务一致的一句话>"
+```
+
+- **禁止** 只改工作区不提交——没有 commit，horsewhip 泳道不会出现节点。
+- **禁止** 空泛说明：`update`、`fix`、`wip`、`misc`。
+
+### B.2 有 origin 则必须 push
+
+commit 后 **立即** 检查：
 
 ```bash
 git remote get-url origin 2>/dev/null
@@ -51,67 +81,58 @@ git remote get-url origin 2>/dev/null
 
 | 情况 | 行为 |
 |------|------|
-| **存在 `origin` 且可访问**（用户已配置 SSH/HTTPS 云端仓库） | **必须** `git push`（当前分支）；若首次推送该分支：`git push -u origin HEAD` |
-| 无 `origin` 或用户明确说「不要 push」 | 只 commit，不 push |
-| push 失败 | 向用户报告错误，**不要** 假装已完成；已 commit 的保留本地 |
+| 存在可访问的 `origin` | **必须** `git push`；新分支：`git push -u origin HEAD` |
+| 无 `origin` 或用户明确说不要 push | 只 commit |
+| push 失败 | **如实报告**，不得谎称已完成；本地 commit 保留 |
 
-> 用户用马鞭「发布 / 连接 GitHub」后，默认视为希望 **commit + push** 形成云端上传序（Cn），便于多端查看。
+用户通过 horsewhip 连接 GitHub 后，默认期望 **commit + push**，以便云端时间轴（Cn）与本地一致。
 
-### 1.3 先边界，后改码
+### B.3 禁止绕过守门（除非用户明确要求）
 
-- 若用户在马鞭中划定了 **本次边界** 或插入了 Chat 约束，**只允许修改边界内路径**。
-- 未给边界时，改动范围仍应与用户当次描述一致；不得借机重构无关目录。
+- 不要用 `git commit --no-verify` 规避越界拦截，除非用户 **明确同意** 本次越界。
+- 不要 force push 到 `main` / `master`，除非用户 **明确要求**。
 
 ---
 
-## 2. 分支命名（统一 `feature/`，降低马鞭复杂度）
+## C. 分支命名（只用 `feature/*`）
 
-### 2.1 新建实验分支
+### C.1 新建实验分支
 
-**所有** 为保留方案、并行尝试、待融合回主线而创建的分支，必须使用：
+为保留并行方案、待融合回主线而建的分支 **必须**：
 
 ```text
 feature/<简短英文或拼音>-<可选序号>
 ```
 
-示例（推荐）：
+✅ `feature/login-oauth` · `feature/ui-dark-v2`  
+❌ `TA`、`readme-update`、`test-branch`、`mywork`
 
-- `feature/login-oauth`
-- `feature/ui-dark-v2`
-- `feature/read-cache`
+### C.2 主泳道
 
-**禁止** 使用无规则名称，例如：`TA`、`TA-only-test`、`readme-update`、`test-branch`、`mywork`。  
-这些名字在马鞭分支栏里难以一眼识别，多分支融合时也容易搞混。
+- 集成目标只能是 **`main`** 或 **`master`**（与仓库默认分支一致）。
+- 不要在未征得同意时另造 `develop`。
+- 实验在 `feature/*` 完成，**择优合并回主泳道**。
 
-### 2.2 主泳道
-
-- 集成分支固定为 **`main`** 或 **`master`**（与仓库已有默认分支一致，不要另造 `develop` 除非用户明确要求）。
-- **融合目标永远是主泳道**；实验在 `feature/*` 上完成，择优合并回 `main`。
-
-### 2.3 马鞭仓库自身的例外
-
-本仓库（horsewhip 产品）可能存在 `experiment/*` 等内部开发分支，**仅用于马鞭产品开发**，不作为用户项目的范例。  
-**用户项目** 上 AI 仍应只用 `feature/*` + `main`/`master`。
-
-### 2.4 创建分支命令
+### C.3 创建分支
 
 ```bash
 git checkout main          # 或 master
 git pull --ff-only         # 若已有 origin
 git checkout -b feature/<name>
-# … 修改、commit、push …
+# … 在边界内改码 → commit → push …
 ```
 
 ---
 
-## 3. Commit 信息规范
-
-格式（与内容语言可与用户一致，中文/英文均可）：
+## D. Commit 信息规范
 
 ```text
 <type>: <一句话说明用户可见结果>
 
-可选正文：改了哪些文件/模块；若跨 feature 融合，写明来源分支。
+可选正文：
+- 改了哪些路径
+- 若在 feature 上：分支名
+- 若为融合：来源分支列表
 ```
 
 | type | 用途 |
@@ -120,77 +141,156 @@ git checkout -b feature/<name>
 | `fix` | 修 bug |
 | `refactor` | 行为不变的重构（须在边界内） |
 | `docs` | 仅文档 |
-| `chore` | 构建、依赖、无用户可见行为 |
-| `merge` | 融合多分支回主泳道 |
+| `chore` | 构建、依赖，无用户可见行为 |
+| `merge` | 多分支融合回主泳道 |
 
 示例：
 
 ```text
 feat: 登录页支持 OAuth 回调
 
-- 修改 src/auth/oauth.ts, src/pages/Login.tsx
+- src/auth/oauth.ts, src/pages/Login.tsx
 - 分支 feature/login-oauth
 ```
 
 ```text
 merge: 融合 feature/ui-dark-v2 与 feature/read-cache 回 main
 
-- 保留 dark 主题与 read 缓存逻辑
-- 来源分支: feature/ui-dark-v2, feature/read-cache
+- 保留 dark 主题与 read 缓存
+- 来源: feature/ui-dark-v2, feature/read-cache
 ```
-
-**Commit 内容** = 用户当次要求下的真实文件变更，不要夹带边界外文件。
 
 ---
 
-## 4. 与马鞭 UI 配合的标准流程
+## E. 标准工作流（与 horsewhip UI 配合）
 
 ```text
-1. 用户在主泳道 / 或说明任务
-2. AI 确认边界（马鞭选中节点 → 插入 Chat 的约束）
-3. git checkout -b feature/<name>   # 新实验
-4. 在边界内改码
-5. git commit -m "…"               # 必须
-6. git push                        # 有 origin 则必须
-7. 用户在马鞭分支栏看到 feature/* 泳道
-8. 多方案保留 → 用户多选分支 →「AI 融合 → 主泳道」
-9. AI 在 main 上择优合并，再 commit（+ push）
-10. 用户刷新马鞭，在主泳道继续观察
+1. 用户说明任务，或在泳道选定边界节点
+2. 你确认边界（或请用户在 horsewhip 点选后把约束贴入 Chat）
+3. git checkout -b feature/<name>     # 新实验时
+4. 仅在边界内改码
+5. git commit -m "…"                  # 必须
+6. git push                           # 有 origin 则必须
+7. 用户刷新 horsewhip，在分支栏看到 feature/* 泳道
+8. 多方案：用户多选分支 →「AI 融合 → 主泳道」→ 你把择优结果合并到 main
+9. 在 main 上 merge commit（+ push）
+10. 用户刷新，在主泳道继续
 ```
 
-**不要** 要求用户理解 merge commit 的 parent 顺序；**要** 用 `feature/*` + 清晰 commit + push，让马鞭图谱可读。
+**不要** 要求用户理解 merge parent 顺序；**要** 用 `feature/*` + 清晰 commit + push，让图谱可读。
+
+### 多分支融合任务（用户从 horsewhip 插入时）
+
+约束文案可能包含：
+
+```text
+【horsewhip · AI 多分支融合】
+目标：以下 N 条实验分支…择优融合回主泳道 main…
+```
+
+你应：在 `main` 上合并选定分支的有价值改动，解决冲突，留下 **一条清晰的 merge commit**，然后 push。
 
 ---
 
-## 5. 禁止事项（避免马鞭「变复杂」）
+## F. 守门（插件 Phase 3，若已安装）
+
+| 时机 | 作用 |
+|------|------|
+| 事前 | 边界约束 prompt（§A） |
+| 保存 / 检查越界 | 对比 allowlist 与实际改动 |
+| commit 前 | 面板提交与 **pre-commit hook** 可拦截越界 |
+
+越界时用户可能让你执行 **越界纠正**：
+
+```text
+【horsewhip · 越界纠正】
+用户明确要求只修改：…
+检测到额外改动：…
+请立即 revert …，仅保留允许范围内的修改。
+```
+
+你应：**revert 越界路径**，只在允许范围内保留改动，然后重新 commit。
+
+相关设置见产品文档 [`docs/boundary-guard.md`](../docs/boundary-guard.md)。  
+钩子未安装时，终端 `git commit` 不会自动拦截——提醒用户运行 **Horsewhip: Install Git Pre-Commit Guard Hook**。
+
+---
+
+## G. 禁止事项
 
 | 禁止 | 原因 |
 |------|------|
-| 改了一大堆却不 commit | 泳道无节点，马鞭失效 |
-| 乱建分支名 | 分支栏无法扫一眼识别实验 |
-| 在 `main` 上直接做大量实验且不提交 | 无法并行保留 A/B/C |
+| 改很多却不 commit | 泳道无节点，horsewhip 失效 |
+| 随意分支名 | 实验线不可读 |
+| 在 `main` 上长期做大实验且不提交 | 无法并行保留 A/B/C |
 | 有 origin 却不 push | 云端与本地时间轴不一致 |
-| 一次 commit 混入边界外文件 | 破坏 AI 边界信任 |
-| 教用户背 Git 术语才能用马鞭 | 马鞭面向 AI 边界，不是 Git 课 |
+| commit 混入边界外文件 | 破坏信任 |
+| 用 `--no-verify` 偷偷提交越界 | 绕过守门 |
+| 教用户背 Git 术语才能协作 | horsewhip 面向 AI 边界，不是 Git 课 |
 
 ---
 
-## 6. 自检清单（任务结束前 30 秒）
+## H. 完成前自检（30 秒）
 
-- [ ] 改动是否在边界 / 用户描述范围内？
-- [ ] 是否已 `git commit`，且说明与改动一致？
+- [ ] 改动是否在边界或用户当次描述范围内？
+- [ ] 是否已 `git commit`，且说明与真实改动一致？
 - [ ] 若有 `origin`，是否已 `git push`？
-- [ ] 实验是否在 `feature/*` 上（而非随意分支名）？
-- [ ] 若已融合，是否在 `main` 上留下清晰的 merge commit？
+- [ ] 新实验是否在 `feature/*` 上？
+- [ ] 融合后是否在 `main`/`master` 上有清晰 merge commit？
+- [ ] 若被守门报告越界，是否已 revert 并再提交？
 
-全部勾选后，再向用户报告「完成」。
+**全部勾选后** 再向用户报告「完成」。
 
 ---
 
-## 7. 引用方式
+## Install（人类操作一次）
 
-- **Cursor**：项目 Rules 或对话中 `@AGENTS.md`
-- **其他工具**：将本文件路径加入系统提示 / 项目说明
-- **人类用户**：见根目录 [`README.md`](./README.md) 产品定位
+### Claude Code（推荐：不覆盖已有 `CLAUDE.md`）
 
-*马鞭 · 为 AI 协作而生 · 简单 Git 习惯 = 清晰边界时间轴*
+```bash
+cd /path/to/your-project
+curl -fsSL https://raw.githubusercontent.com/waitamomentC/horsewhip/main/protocol/scripts/install-claude-horsewhip.sh | bash -s -- .
+```
+
+| 情况 | 做法 |
+|------|------|
+| **已有 `CLAUDE.md`**（公司模板等） | 默认 **只装** `.claude/rules/horsewhip-protocol.md` + `AGENTS.md`；用 `--snippet` 在 `CLAUDE.md` 加一段指针 |
+| **没有 `CLAUDE.md`** | 加 `--with-claude-md` 生成短模板 |
+
+**会和别的 `CLAUDE.md` 冲突吗？** 一般 **不会**：Horsewhip 只管 Git 与文件边界；构建/架构仍听你的 `CLAUDE.md`。若冲突，Git/边界 **以 Horsewhip 为准**。详见 [`protocol/docs/claude-code.md`](./docs/claude-code.md)。
+
+### 手动安装 / Cursor
+
+```bash
+BRANCH=main
+curl -fsSL -o AGENTS.md \
+  "https://raw.githubusercontent.com/waitamomentC/horsewhip/${BRANCH}/protocol/AGENTS.md"
+```
+
+Claude 还需将 **带优先级说明的** rules 装入 `.claude/rules/`（用上面脚本，或见 `protocol/docs/claude-code.md`）。
+
+**验证**：`claude` 问「Git 和 CLAUDE.md 冲突听谁的？」；Cursor 用 `@AGENTS.md`。
+
+---
+
+## 社区扩展（非本文件范围）
+
+| 工具 | 建议 | 维护 |
+|------|------|------|
+| Cursor `.mdc` rules |  `@AGENTS.md` 或 include 本文件 | 社区 |
+| Windsurf / Continue | 项目 rules 指向 `AGENTS.md` | 社区 |
+| 其他 IDE | 复制本文件 + 适配说明 PR | 社区 |
+
+**不要** 在别处维护第二套铁律；有冲突以 **本文件** 为准。
+
+---
+
+## 附录：仅 horsewhip 产品仓库
+
+开发 **horsewhip 本身** 时，除本协议外还可使用 `experiment/*` 等内部分支；**用户业务仓库不要学这个例外**。
+
+产品进度与插件构建见仓库根目录 [`README.md`](../README.md)、[`CLAUDE.md`](../CLAUDE.md)。
+
+---
+
+*Horsewhip · AI boundary first · Simple Git habits = readable timeline*

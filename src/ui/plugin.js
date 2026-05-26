@@ -33,7 +33,7 @@ function showPluginEmptyGit() {
     const title = hw.els.graphEmpty.querySelector('.graph-empty__title');
     const desc = hw.els.graphEmpty.querySelector('.graph-empty__desc');
     if (title) title.textContent = '划定边界，再让 AI 动手';
-    if (desc) desc.textContent = '需要至少一次 commit 才有泳道 · 命令面板：马鞭: 刷新 Git 记录';
+    if (desc) desc.textContent = '需要至少一次 commit 才有泳道 · 命令面板：horsewhip: 刷新 Git 记录';
   }
   if (hw.els.graphHint) hw.els.graphHint.hidden = true;
   if (hw.els.graphZoom) hw.els.graphZoom.hidden = true;

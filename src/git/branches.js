@@ -38,14 +38,12 @@ function resolveCommitHash(token, commitMap) {
   return hits.length === 1 ? commitMap[hits[0]] : null;
 }
 
-function findMergeCommitForBranch(parsed, chain) {
+function findMergeCommitForBranch(parsed, chain, seg) {
   if (!chain.length) return null;
-  const chainSet = new Set(chain.map((c) => c.hash));
   const candidates = [];
   parsed.commits.forEach((c) => {
     if (c.parents.length < 2) return;
-    const branchParent = c.parents[1];
-    if (!branchParent || !chainSet.has(branchParent)) return;
+    if (!hw.segmentOwnsMergeCommit(seg, c, chain, parsed)) return;
     const mergeCol = c.versionIndex ?? c.displayColumn ?? 0;
     const allAfterMerge = chain.every((x) => {
       const col = x.versionIndex ?? x.displayColumn ?? 0;
@@ -64,7 +62,7 @@ function findMergeCommitForBranch(parsed, chain) {
 }
 
 function resolveSegmentMergeHash(parsed, chain, seg) {
-  const found = hw.findMergeCommitForBranch(parsed, chain);
+  const found = hw.findMergeCommitForBranch(parsed, chain, seg);
   if (found) return found;
   const mc = seg?.mergeHash && parsed.commitMap[seg.mergeHash];
   const bp = mc?.parents?.[1];
@@ -169,6 +167,17 @@ function enrichBranchSegmentsFromGitBranches(parsed, branches) {
     hw.applyBranchSegmentFromTip(seg, parsed, tip, chain, forkHash);
     parsed.branchSegments.push(seg);
     existing.add(b.name);
+  });
+
+  parsed.branchSegments = parsed.branchSegments.filter((seg) => {
+    if (!/^branch-\d+$/i.test(seg.id || '')) return true;
+    return !parsed.branchSegments.some(
+      (other) => other !== seg
+        && other.id !== seg.id
+        && !/^branch-\d+$/i.test(other.id || '')
+        && other.forkHash === seg.forkHash
+        && other.mergeHash === seg.mergeHash,
+    );
   });
 }
 

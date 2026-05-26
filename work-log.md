@@ -1,4 +1,4 @@
-# 马鞭 (Horsewhip) — 工作日志
+# horsewhip (Horsewhip) — 工作日志
 
 > 每完成一项，更新 **状态**、**完成日期** 和 **备注**，并在底部 **[日志记录]** 追加一条。  
 > 任务 ID 与 [`plan.md`](./plan.md) 对应。  
@@ -227,7 +227,7 @@
 2026-05-25 | P2-1..5 | ✅ 完成 | extension/ VS Code 插件 v0.1：自动 git log、Webview 同款图、执行 checkout/reset
 2026-05-24 | 10.0 | ✅ 完成 | 顶部版本尺横轴+竖向对齐线；VERSION_SPACING 36px；默认顶层 folder 折叠聚合
 2026-05-24 | 9.0 | ✅ 完成 | 引入 awesome-design-md；移除 Git Graph 引擎；DESIGN.md + Linear 风 CSS
-2026-05-24 | 8.0 | ❌ 取消 | Git Graph 引擎已移除，恢复马鞭自研 graph
+2026-05-24 | 8.0 | ❌ 取消 | Git Graph 引擎已移除，恢复 horsewhip 自研 graph
 2026-05-24 | 7.0 | ✅ 完成 | Git Graph 风格：泳道实线+圆点+水平连线；修复 log 4 字段解析；demo 16 commit / 2 分支；默认展开顶层 folder
 2026-05-24 | 6.0 | ✅ 完成 | 水平 git-graph：--all + %P|%D 解析 DAG；分支子泳道紧贴父泳道下方、近色；fork/merge 曲线
 2026-05-24 | 5.1 | ✅ 完成 | Hub 规则：奇数正中、偶数双中 hash 随机
@@ -235,10 +235,10 @@
 2026-05-24 | 4.1 | ✅ 完成 | 节点/连线 v4.1 视觉：三层连线(bloom+core+flow)、渐变填充、入场绘制、HEAD 脉冲、平移缓动
 2026-05-24 | 4.0 | ✅ 完成 | v4：commit 间距 20px、节点/连线缩小；初始 HEAD 居中，滚轮追溯历史时 HEAD 移向边缘
 2026-05-24 | 3.12 | ✅ 完成 | 跨文件连线改贝塞尔曲线；历史线灰影双层；当前线白光灯条 glow
-2026-05-24 | 3.11 | ✅ 完成 | 布局 v3：马鞭 logo 保留；demo/paste/generate 移入标题栏；左 128px 文件栏与右节点视图 Y 轴对齐、纵向滚动同步；右区滚轮 ↑ 历史 ↓ 未来
+2026-05-24 | 3.11 | ✅ 完成 | 布局 v3：horsewhip logo 保留；demo/paste/generate 移入标题栏；左 128px 文件栏与右节点视图 Y 轴对齐、纵向滚动同步；右区滚轮 ↑ 历史 ↓ 未来
 2026-05-24 | 3.10 | ✅ 完成 | 极简极客 UI：纯 #000/#fff 双主题、移除 blob/渐变/玻璃
 2026-05-24 | M1 | ✅ 完成 | Phase 1 网页 MVP 全部开发任务 1.1–3.9
-2026-05-25 | 定位 | ✅ | README / extension README 重写 | AI 边界为核心，明确非 GitGraph；约束文案改「马鞭 · AI 文件边界」；空态/提示对齐工作流
+2026-05-25 | 定位 | ✅ | README / extension README 重写 | AI 边界为核心，明确非 GitGraph；约束文案改「horsewhip · AI 文件边界」；空态/提示对齐工作流
 2026-05-25 | P2 | 🔄 | 分支栏全量 + 多选融合 | git for-each-ref、融合条、插入 Chat 任务
 2026-05-25 | 协议 | ✅ | AGENTS.md | vibe coding：必 commit、有 origin 必 push、分支仅 feature/*
 2026-05-25 | Claude | ✅ | CLAUDE.md + .claude/rules/ | Claude Code 会话自动加载，无需 @；用户模板 docs/templates/

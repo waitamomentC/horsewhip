@@ -63,6 +63,88 @@ export async function augmentLogWithBranchTips(
   return chunks.filter(Boolean).join('\n\n');
 }
 
+/** Paths changed vs HEAD (staged, unstaged, and untracked). */
+export async function fetchWorkingTreeChangedFiles(cwd: string): Promise<string[]> {
+  const files = new Set<string>();
+  try {
+    const { stdout: diffOut } = await execFileAsync(
+      'git',
+      ['diff', 'HEAD', '--name-only', '--diff-filter=ACDMRTUXB'],
+      { cwd, maxBuffer: 8 * 1024 * 1024, timeout: 60_000 },
+    );
+    diffOut
+      .trim()
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .forEach((f) => files.add(f));
+  } catch {
+    /* no commits yet — fall through to status */
+  }
+  try {
+    const { stdout: untracked } = await execFileAsync(
+      'git',
+      ['ls-files', '--others', '--exclude-standard'],
+      { cwd, maxBuffer: 8 * 1024 * 1024, timeout: 60_000 },
+    );
+    untracked
+      .trim()
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean)
+      .forEach((f) => files.add(f));
+  } catch {
+    /* ignore */
+  }
+  if (!files.size) {
+    try {
+      const { stdout: status } = await execFileAsync(
+        'git',
+        ['status', '--porcelain'],
+        { cwd, maxBuffer: 8 * 1024 * 1024, timeout: 60_000 },
+      );
+      for (const line of status.trim().split('\n')) {
+        if (!line || line.length < 4) continue;
+        const path = line.slice(3).trim().replace(/^"|"$/g, '');
+        if (path.includes(' -> ')) {
+          path.split(' -> ').forEach((p) => files.add(p.trim()));
+        } else {
+          files.add(path);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return [...files].sort((a, b) => a.localeCompare(b));
+}
+
+/** Restore tracked paths to HEAD; remove untracked paths under workspace. */
+export async function gitRestorePaths(cwd: string, paths: string[]): Promise<void> {
+  const rel = [...new Set(paths.map((p) => p.trim()).filter(Boolean))];
+  if (!rel.length) return;
+  const tracked: string[] = [];
+  const untracked: string[] = [];
+  for (const p of rel) {
+    try {
+      await execFileAsync('git', ['ls-files', '--error-unmatch', '--', p], { cwd, timeout: 15_000 });
+      tracked.push(p);
+    } catch {
+      untracked.push(p);
+    }
+  }
+  if (tracked.length) {
+    await execFileAsync('git', ['checkout', 'HEAD', '--', ...tracked], { cwd, timeout: 120_000 });
+  }
+  for (const p of untracked) {
+    try {
+      await execFileAsync('git', ['clean', '-fd', '--', p], { cwd, timeout: 60_000 });
+    } catch {
+      /* ignore single-file clean failure */
+    }
+  }
+}
+
 export async function gitCheckoutFile(cwd: string, hash: string, filePath: string): Promise<void> {
   await execFileAsync('git', ['checkout', hash, '--', filePath], { cwd, timeout: 60_000 });
 }

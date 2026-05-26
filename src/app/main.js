@@ -26,7 +26,16 @@ import './data.js';
 import './wire.js';
 import { bootstrap } from './bootstrap.js';
 
-bootstrap();
+if (typeof d3 === 'undefined') {
+  window.__horsewhipBootError = 'd3 图表库未加载。请 Reload Window；若仍失败，确认 extension/media/d3.min.js 存在。';
+} else {
+  try {
+    bootstrap();
+  } catch (err) {
+    console.error('[Horsewhip] bootstrap failed:', err);
+    window.__horsewhipBootError = err?.message || String(err);
+  }
+}
 
 if (hw.PER_LANE_VERSION) document.documentElement.classList.add('hw-per-lane-v');
 
@@ -59,3 +68,5 @@ window.HorsewhipApp = {
   buildBoundaryPrompt: hw.buildBoundaryPrompt,
   clearNodeSelection: hw.clearNodeSelection,
 };
+
+window.dispatchEvent(new CustomEvent('horsewhip-app-ready'));

@@ -1,4 +1,4 @@
-# 马鞭 (Horsewhip) — UI 设计计划
+# horsewhip (Horsewhip) — UI 设计计划
 
 > **新窗口入口**：先读 [`README.md`](./README.md)，再读 [`work-log.md`](./work-log.md) 查进度。  
 > **UI 现行版**：极简纯黑/白双主题 + **布局 v3**（标题栏工具 · 左文件栏 · 右节点视图，见 `style.css` / `index.html`）。下文霓虹版为早期草案，仅供参考。
@@ -52,7 +52,7 @@ d 文件                                ●
   --bg-elevated:   #111827;   /* 卡片底 */
   --bg-glass:      rgba(17, 24, 39, 0.55);
 
-  /* 品牌主色 — 「马鞭」能量紫 + 电 cyan */
+  /* 品牌主色 — 「horsewhip」能量紫 + 电 cyan */
   --accent-primary:   #8b5cf6;  /* violet-500 */
   --accent-secondary: #22d3ee;  /* cyan-400 */
   --accent-warm:      #f472b6;  /* pink-400，用于 hover 高亮 */
@@ -105,7 +105,7 @@ d 文件                                ●
 --font-mono:    'JetBrains Mono', 'SF Mono', monospace;
 ```
 
-- 「马鞭」中文用 display 字重 800，英文副标题 letter-spacing: 0.08em
+- 「horsewhip」中文用 display 字重 800，英文副标题 letter-spacing: 0.08em
 - 文件路径一律 mono，过长 truncate + tooltip 完整展示
 
 ### 2.3 圆角 / 间距 / 阴影
@@ -144,7 +144,7 @@ d 文件                                ●
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │  HEADER (64px, sticky, glass blur)                               │
-│  ⚡ 马鞭 Horsewhip    [GitHub ★] [Buy me a coffee]                 │
+│  ⚡ horsewhip Horsewhip    [GitHub ★] [Buy me a coffee]                 │
 ├──────────────────────────────────────────────────────────────────┤
 │  HERO STRIP (可选，首次未生成时全屏；生成后折叠为 120px)          │
 │  标语 + 一行 git 命令 chip + 「生成演化图」主按钮                  │
@@ -186,7 +186,7 @@ d 文件                                ●
 ### 4.1 Header
 
 ```
-[ Logo 图标 ]  马鞭  ·  HORSEWHIP          [ ★ Star on GitHub ]  [ ♥ Sponsor ]
+[ Logo 图标 ]  horsewhip  ·  HORSEWHIP          [ ★ Star on GitHub ]  [ ♥ Sponsor ]
 ```
 
 | 元素 | 规格 |
@@ -206,7 +206,7 @@ d 文件                                ●
                     ✦
               [ 鞭痕 Logo 动画 ]
 
-         马鞭 · Horsewhip
+         horsewhip · Horsewhip
    For that horse that keeps trampling your codebase
 
    ┌─────────────────────────────────────────┐
@@ -554,7 +554,7 @@ BEM 风格，便于纯 CSS 维护。
 
 ```
 ╔══════════════════════════════════════════════════════════════════╗
-║ ⚡ 马鞭 HORSEWHIP                          [ ★ GitHub ] [ ♥ ]   ║
+║ ⚡ horsewhip HORSEWHIP                          [ ★ GitHub ] [ ♥ ]   ║
 ╠══════════════╦═══════════════════════════════════════════════════╣
 ║ PASTE LOG    ║  · · · · · · · · · · · · · · · · · · · · · · ·  ║
 ║ ┌──────────┐ ║       ●━━━━━━━━━━━━━━━●                        ║

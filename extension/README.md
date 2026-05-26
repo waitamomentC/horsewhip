@@ -1,4 +1,4 @@
-# 马鞭 · Horsewhip（VS Code / Cursor 插件）
+# Horsewhip（VS Code / Cursor 插件）
 
 **AI 边界可视化**：在侧边栏看清文件泳道与版本，挥鞭划定约束，多选分支生成「融合回主泳道」任务并插入 Chat。  
 不是 GitGraph，不追求 DAG 专业度；Git 仅用于读取 log 与记录版本。
@@ -12,9 +12,9 @@
 
 | 入口 | 说明 |
 |------|------|
-| 左侧活动栏 **马鞭** | 主面板 |
-| `马鞭: 打开时间线` | 聚焦侧边栏 |
-| `马鞭: 刷新 Git 记录` | 重新拉 log + 分支列表 |
+| 左侧活动栏 **horsewhip** | 主面板 |
+| `horsewhip: 打开时间线` | 聚焦侧边栏 |
+| `horsewhip: 刷新 Git 记录` | 重新拉 log + 分支列表 |
 
 ## AI 边界工作流（推荐）
 
@@ -26,6 +26,18 @@
 
 边界文件会同步为会话 **allowlist**（减少 AI 改飞）。
 
+## 守门（Phase 3）
+
+AI 改完后对比 **allowlist** 与 **git 工作区改动**：
+
+1. 泳道点节点划定边界（与事前约束同一 allowlist）
+2. 顶栏 **检查越界** 或保存时自动检查
+3. 越界 → **插入纠正到 Chat** / **还原越界文件**
+
+详见 [`docs/boundary-guard.md`](../docs/boundary-guard.md)。
+
+**Commit 拦截（默认开）**：已划边界且越界时，horsewhip 内「提交」与终端 `git commit` 均会被拒绝；打开工作区会自动安装 pre-commit 钩子。紧急可用 `git commit --no-verify`。
+
 ## 开发调试
 
 ```bash
@@ -35,7 +47,13 @@ npm run sync-assets
 npm run compile
 ```
 
-打开 **`extension/`** → **F5** → 新窗口打开带 git 的文件夹 → 点马鞭图标。
+打开 **`extension/`** → **F5** → 新窗口打开带 git 的文件夹 → 点 Horsewhip 图标。
+
+## 版本号
+
+- 当前基线：**0.7.0**（`extension/package.json`）
+- 每次 `npm run package` 会自动 `bump:build`（semver 补丁位）：`0.7.0` → `0.7.1` → `0.7.2` …
+- 仅本地 F5 调试可不 bump；手动递增：`cd extension && npm run bump:build`
 
 修改仓库根目录 `script.js` / `style.css` 后：
 

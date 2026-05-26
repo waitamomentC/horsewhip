@@ -9,7 +9,7 @@ function csp(webview: vscode.Webview): string {
     "default-src 'none'",
     `font-src ${webview.cspSource} https://fonts.gstatic.com`,
     `style-src ${webview.cspSource} 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net`,
-    `script-src ${webview.cspSource} https://d3js.org https://cdn.jsdelivr.net 'unsafe-inline'`,
+    `script-src ${webview.cspSource} https://cdn.jsdelivr.net 'unsafe-inline'`,
     `connect-src ${webview.cspSource}`,
     `media-src ${webview.cspSource}`,
   ].join('; ');
@@ -91,6 +91,15 @@ export function buildTimelineHtml(
       display: flex; flex-direction: column;
     }
     body.hw-plugin .plugin-bar { flex: 0 0 auto; }
+    .plugin-guard {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 11px; color: #9aa3b2;
+    }
+    .plugin-guard__status { font-weight: 600; }
+    .plugin-guard__status--ok { color: #4ade80; }
+    .plugin-guard__status--warn { color: #fbbf24; }
+    .plugin-guard__status--idle { color: #6b7280; }
+    .plugin-guard__status--over { color: #f87171; }
     .hw-workspace {
       flex: 1 1 auto; min-height: 0;
       display: flex; flex-direction: column;
@@ -424,6 +433,13 @@ export function buildTimelineHtml(
       <span class="plugin-bar__sep">·</span>
       <span id="plugin-remote-label" class="git-warn">未连接 remote</span>
     </span>
+    <span class="plugin-bar__sep">·</span>
+    <span class="plugin-guard" id="plugin-guard">
+      <span class="plugin-guard__status plugin-guard__status--idle" id="plugin-guard-status">守门 · 未划定</span>
+      <button type="button" class="plugin-bar__btn" id="btn-guard-check" title="对比 git 改动与泳道边界">检查越界</button>
+      <button type="button" class="plugin-bar__btn" id="btn-guard-correct" hidden title="把越界纠正文案插入 Chat">插入纠正</button>
+      <button type="button" class="plugin-bar__btn" id="btn-guard-revert" hidden title="还原越界文件到 HEAD">还原越界</button>
+    </span>
     <div class="plugin-bar__actions">
       <button type="button" class="plugin-bar__btn" id="btn-commit-open" hidden title="提交当前更改">提交</button>
       <button type="button" class="plugin-bar__btn" id="btn-open-github" hidden title="在浏览器打开 GitHub 仓库">GitHub</button>
@@ -448,7 +464,7 @@ export function buildTimelineHtml(
     <div class="hw-stage-head__files">分支 · 文件</div>
     <div class="hw-stage-head__lanes">
       泳道
-      <span class="hw-stage-head__hint">分支栏多选融合 · 点文件聚焦 · 点节点选边界 · 小马鞭复制</span>
+      <span class="hw-stage-head__hint">点文件聚焦 · 点泳道节点操作 · horsewhip 复制</span>
     </div>
   </div>
   <main class="stage" id="stage">
@@ -636,7 +652,7 @@ export function buildTimelineHtml(
     </div>
   </div>
   <div class="tooltip" id="tooltip" hidden></div>
-  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="${u('d3.min.js')}"></script>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
   <script src="${u('demo-data.js')}"></script>

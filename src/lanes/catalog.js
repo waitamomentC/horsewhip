@@ -19,6 +19,30 @@ function insertBranchLanes(baseLanes, branchSegments) {
   return out;
 }
 
+function wrapHue(h) {
+  return ((Math.round(h) % 360) + 360) % 360;
+}
+
+/** Spread branch hues around parent folder hue (analogous, not identical). */
+function analogousBranchHues(baseHue, count) {
+  if (count <= 0) return [];
+  if (count === 1) return [wrapHue(baseHue + 14)];
+  const halfSpan = Math.min(52, 12 + count * 8);
+  const step = (halfSpan * 2) / (count - 1);
+  return Array.from({ length: count }, (_, i) => wrapHue(baseHue - halfSpan + i * step));
+}
+
+function laneHslPack(h, sat, lit) {
+  const satDim = Math.max(38, sat - 18);
+  const litDim = Math.max(28, lit - 14);
+  return {
+    hue: h,
+    color: `hsl(${h}, ${sat}%, ${lit}%)`,
+    colorDim: `hsl(${h}, ${satDim}%, ${litDim}%)`,
+    colorBright: `hsl(${h}, ${Math.min(88, sat + 6)}%, ${Math.min(72, lit + 6)}%)`,
+  };
+}
+
 function assignLaneColors(lanes) {
   const assignable = lanes.filter((l) => !l.isHeader && !l.isBranchLane);
   const hueByPath = new Map();
@@ -30,28 +54,44 @@ function assignLaneColors(lanes) {
     }
   });
 
+  const branchHueByPath = new Map();
+  const branchIndexByPath = new Map();
+  const branchesByParent = new Map();
+  lanes.filter((l) => l.isBranchLane && l.parentLanePath).forEach((lane) => {
+    const parent = lane.parentLanePath;
+    if (!branchesByParent.has(parent)) branchesByParent.set(parent, []);
+    branchesByParent.get(parent).push(lane);
+  });
+  branchesByParent.forEach((branchLanes, parentPath) => {
+    const baseHue = hueByPath.get(parentPath) ?? hw.LANE_HUES[0];
+    const sorted = [...branchLanes].sort((a, b) => String(a.label || '').localeCompare(String(b.label || '')));
+    const hues = analogousBranchHues(baseHue, sorted.length);
+    sorted.forEach((lane, i) => {
+      branchHueByPath.set(lane.path, hues[i]);
+      branchIndexByPath.set(lane.path, i);
+    });
+  });
+
   return lanes.map((lane) => {
     const branch = !!lane.isBranchLane;
     const d = (lane.depth || 0) + (branch ? 1 : 0);
     let h;
     if (branch) {
-      h = hueByPath.get(lane.parentLanePath) ?? hw.LANE_HUES[0];
+      const parentHue = hueByPath.get(lane.parentLanePath) ?? hw.LANE_HUES[0];
+      h = branchHueByPath.get(lane.path) ?? wrapHue(parentHue + 14);
     } else if (lane.isHeader) {
       h = hueByPath.get(lane.path) ?? hw.LANE_HUES[0];
     } else {
       h = hueByPath.get(lane.path) ?? hw.LANE_HUES[hueIdx % hw.LANE_HUES.length];
     }
-    const sat = Math.min(82, 74 - d * 2);
-    const lit = Math.max(32, 62 - d * 2);
-    const satDim = Math.max(38, sat - 18);
-    const litDim = Math.max(28, lit - 14);
-    return {
-      ...lane,
-      hue: h,
-      color: `hsl(${h}, ${sat}%, ${lit}%)`,
-      colorDim: `hsl(${h}, ${satDim}%, ${litDim}%)`,
-      colorBright: `hsl(${h}, ${Math.min(88, sat + 6)}%, ${Math.min(72, lit + 6)}%)`,
-    };
+    let sat = Math.min(82, 74 - d * 2);
+    let lit = Math.max(32, 62 - d * 2);
+    if (branch) {
+      const bi = branchIndexByPath.get(lane.path) ?? 0;
+      sat = Math.min(86, sat + 6 + (bi % 3) * 2);
+      lit = Math.max(34, lit + (bi % 2) * 3 - 1);
+    }
+    return { ...lane, ...laneHslPack(h, sat, lit) };
   });
 }
 
@@ -420,6 +460,9 @@ function buildLaneCatalog(parsed) {
 
 Object.assign(hw, {
   insertBranchLanes,
+  wrapHue,
+  analogousBranchHues,
+  laneHslPack,
   assignLaneColors,
   laneIconColor,
   getAllFiles,

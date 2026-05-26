@@ -1,5 +1,8 @@
 import { hw } from '../core/hw.js';
 
+const WHIP_ICON_REV = '6';
+let whipFloatNodesForCopy = null;
+
 function ensureWhipAudioContext() {
   if (hw.whipAudioContext) return hw.whipAudioContext;
   const Ctx = window.AudioContext || window.webkitAudioContext;

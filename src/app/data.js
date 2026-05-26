@@ -104,6 +104,26 @@ function resolveFocusGraphX(parsed) {
   return head.versionIndex ?? head.displayColumn ?? 1;
 }
 
+async function copyText(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+  if (btn) {
+    if (btn.classList.contains('hw-whip-btn')) return;
+    const orig = btn.textContent;
+    btn.textContent = '✓';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); }, 1500);
+  }
+}
+
 function showCopyToast(message) {
   let el = document.getElementById('hw-copy-toast');
   if (!el) {
@@ -146,6 +166,9 @@ function renderFromState(options = {}) {
 
 function loadAndRender(text) {
   try {
+    if (typeof d3 === 'undefined') {
+      throw new Error('d3 未加载，无法绘制泳道');
+    }
     hw.state.headSnapshotBeforeLoad = hw.captureHeadSnapshot();
     const savedExpanded = hw.isPluginHost() ? new Set(hw.state.expandedPaths) : null;
     hw.state.rawLogText = text;
@@ -176,6 +199,10 @@ function loadAndRender(text) {
     hw.state.catalog = null;
     hw.state.laneSliceCache = null;
     hw.renderFromState({ assignDefaultPulse: true });
+    if (hw.state.selectedNodeIds.size) {
+      hw.rebuildBoundaryFromNodes();
+      hw.syncBoundaryBar();
+    }
   } catch (e) {
     hw.showError(e.message || String(e));
   }
@@ -206,6 +233,7 @@ Object.assign(hw, {
   applyNewHeadFocusAfterRender,
   headMainlineVersion,
   resolveFocusGraphX,
+  copyText,
   showCopyToast,
   showError,
   clearError,

@@ -26,6 +26,14 @@ function parseRefs(raw) {
 function normalizeRefName(r) {
   return String(r || '').replace(/^refs\/heads\//, '').replace(/^origin\//, '');
 }
+function commitBelongsToBranch(commit, branchName) {
+  if (!commit || !branchName) return false;
+  const bn = normalizeRefName(branchName).toLowerCase();
+  if (!bn) return false;
+  if ((commit.refs || []).some((r) => normalizeRefName(r).toLowerCase() === bn)) return true;
+  const sub = (commit.subject || '').toLowerCase();
+  return sub.includes(bn) || sub.includes(`on ${bn} branch`);
+}
 
 const commits = [];
 let current = null;
@@ -54,14 +62,6 @@ commits.forEach((c, i) => {
   c.displayColumn = i + 1;
 });
 
-function resolveHeadHash() {
-  for (const name of ['main', 'master']) {
-    const tip = branches.find((b) => b.name === name)?.hash;
-    if (tip && commitMap[tip]) return tip;
-  }
-  return commits[commits.length - 1]?.hash;
-}
-
 function collectBranchChainToFork(tipHash, trunkSet, branchName) {
   const chain = [];
   let cur = commitMap[tipHash];
@@ -72,10 +72,7 @@ function collectBranchChainToFork(tipHash, trunkSet, branchName) {
     if (trunkSet.has(p)) {
       const pc = commitMap[p];
       const gp = pc?.parents?.[0];
-      const sub = (pc?.subject || '').toLowerCase();
-      const bn = (branchName || '').toLowerCase();
-      const belongs = bn && sub.includes(bn);
-      if (belongs && gp) {
+      if (branchName && pc && commitBelongsToBranch(pc, branchName) && gp) {
         chain.unshift(pc);
         return { chain, forkHash: gp };
       }
@@ -86,13 +83,30 @@ function collectBranchChainToFork(tipHash, trunkSet, branchName) {
   return { chain, forkHash: null };
 }
 
-function findMergeCommitForBranch(chain) {
+function segmentOwnsMergeCommit(segName, mergeCommit, chain) {
+  if (!mergeCommit?.parents || mergeCommit.parents.length < 2) return false;
+  const bp = mergeCommit.parents[1];
   const chainSet = new Set(chain.map((c) => c.hash));
+  if (!chainSet.has(bp)) return false;
+  const tip = chain[chain.length - 1];
+  if (tip && bp === tip.hash) return true;
+  const mergeCol = mergeCommit.versionIndex;
+  let tipAtMerge = null;
+  for (const c of chain) {
+    if (c.versionIndex > mergeCol) continue;
+    if (!tipAtMerge || c.versionIndex >= tipAtMerge.versionIndex) tipAtMerge = c;
+  }
+  if (tipAtMerge && bp === tipAtMerge.hash) return true;
+  if (commitBelongsToBranch(mergeCommit, segName)) return true;
+  const bpCommit = commitMap[bp];
+  return Boolean(bpCommit && commitBelongsToBranch(bpCommit, segName));
+}
+
+function findMergeCommitForBranch(chain, segName) {
   const candidates = [];
   commits.forEach((c) => {
     if (c.parents.length < 2) return;
-    const bp = c.parents[1];
-    if (!chainSet.has(bp)) return;
+    if (!segmentOwnsMergeCommit(segName, c, chain)) return;
     const mergeCol = c.versionIndex;
     if (chain.every((x) => x.versionIndex > mergeCol)) return;
     candidates.push(c);
@@ -101,7 +115,7 @@ function findMergeCommitForBranch(chain) {
   return candidates[0]?.hash || null;
 }
 
-const headHash = resolveHeadHash();
+const headHash = branches.find((b) => b.name === 'main')?.hash || commits[commits.length - 1]?.hash;
 const mainlineSet = new Set();
 let cur = headHash;
 while (cur && commitMap[cur]) {
@@ -110,38 +124,17 @@ while (cur && commitMap[cur]) {
 }
 
 const segments = [];
-commits.forEach((c) => {
-  if (c.parents.length < 2) return;
-  const chain = [];
-  let t = commitMap[c.parents[1]];
-  while (t && !mainlineSet.has(t.hash)) {
-    chain.unshift(t);
-    t = commitMap[t.parents[0]];
-  }
-  if (!chain.length) return;
-  segments.push({
-    name: chain.find((x) => x.refs.length)?.refs.map(normalizeRefName)[0] || 'merge-branch',
-    forkHash: chain[0].parents[0],
-    mergeHash: c.hash,
-    chain: chain.map((x) => `${x.hash.slice(0, 7)}@C${x.versionIndex}`),
-  });
-});
-
 branches.filter((b) => !/^(main|master)$/i.test(b.name)).forEach((b) => {
   const { chain, forkHash } = collectBranchChainToFork(b.hash, mainlineSet, b.name);
-  const mergeHash = findMergeCommitForBranch(chain);
-  const id = b.name;
-  const existing = segments.find((s) => s.name === id);
-  const row = {
-    name: id,
+  const mergeHash = findMergeCommitForBranch(chain, b.name);
+  segments.push({
+    name: b.name,
     forkHash: forkHash?.slice(0, 7),
     mergeHash: mergeHash?.slice(0, 7) || null,
     mergeCol: mergeHash ? `C${commitMap[mergeHash].versionIndex}` : null,
     chain: chain.map((x) => `${x.hash.slice(0, 7)}@C${x.versionIndex}`),
     continued: !mergeHash && !mainlineSet.has(b.hash),
-  };
-  if (existing) Object.assign(existing, row);
-  else segments.push(row);
+  });
 });
 
 console.log('HEAD (main):', headHash.slice(0, 7), 'C' + commitMap[headHash].versionIndex);
@@ -151,9 +144,6 @@ for (const s of segments.sort((a, b) => a.name.localeCompare(b.name))) {
   console.log(`  ⎇ ${s.name}: fork ${s.forkHash} chain [${s.chain.join(', ')}] merge ${s.mergeHash || '—'} ${s.mergeCol || ''} ${s.continued ? '(continued)' : ''}`);
 }
 
-const only = segments.find((s) => s.name === 'TA-only-test');
-const ta = segments.find((s) => s.name === 'TA');
-const fa = segments.find((s) => s.name === 'feature/A');
 let ok = true;
 function expect(cond, msg) {
   if (!cond) {
@@ -161,11 +151,15 @@ function expect(cond, msg) {
     console.error('FAIL:', msg);
   }
 }
-expect(headHash.startsWith('23a5435'), 'main HEAD should be 23a5435');
-expect(only?.chain?.length === 2, 'TA-only-test chain should have 2 commits');
-expect(only?.chain?.[0]?.includes('a2d57ea'), 'TA-only-test should include a2d57ea');
-expect(only?.chain?.[1]?.includes('e2fb829'), 'TA-only-test should include e2fb829');
-expect(!only?.mergeHash, 'TA-only-test should not merge to main');
-expect(ta?.mergeHash?.startsWith('23a5435'), 'TA should merge at 23a5435');
-expect(!fa?.mergeHash, 'feature/A should not co-merge to 23a5435');
+const only = segments.find((s) => s.name === 'TA-only-test');
+const ta = segments.find((s) => s.name === 'TA');
+const fa = segments.find((s) => s.name === 'feature/A');
+const fb = segments.find((s) => s.name === 'feature/B');
+
+expect(headHash.startsWith('bae2763'), 'main HEAD should be bae2763');
+expect(only?.mergeHash?.startsWith('555aed2'), 'TA-only-test should merge at 555aed2 (C16)');
+expect(only?.chain?.some((x) => x.includes('e2fb829')), 'TA-only-test chain includes post-merge tip e2fb829');
+expect(ta?.mergeHash?.startsWith('bae2763'), 'TA should merge at bae2763 (C17)');
+expect(!fa?.mergeHash, 'feature/A should not inherit TA-only-test merge at C16');
+expect(!fb?.mergeHash, 'feature/B should not inherit TA-only-test merge at C16');
 console.log(ok ? '\nAll checks passed.' : '\nSome checks failed.');

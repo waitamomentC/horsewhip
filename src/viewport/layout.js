@@ -223,7 +223,7 @@ function wireFileRailFocus(row, lane) {
 function invalidateLaneSliceCache() {
   hw.state.laneSliceCache = new Map();
   if (hw.graphRenderCtx?.renderedLanes) {
-    [...graphRenderCtx.renderedLanes].forEach((i) => hw.unmountLaneSlice(i));
+    [...hw.graphRenderCtx.renderedLanes].forEach((i) => hw.unmountLaneSlice(i));
   }
 }
 

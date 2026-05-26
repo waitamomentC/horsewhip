@@ -368,6 +368,96 @@ function finalizeGraphView(catalog) {
   hw.syncFileRailScrollFromState();
 }
 
+async function syncVisibleLanes(gen, options = {}) {
+  const catalog = hw.state.catalog;
+  if (!hw.state.parsed || !catalog || !hw.graphRenderCtx || !hw.renderIsAlive(gen)) return;
+
+  const prevCol = hw.state.visibleColumnWindow;
+  hw.updateVisibleColumnWindow();
+  if (options.invalidateSlices || hw.columnWindowCacheChanged(prevCol, hw.state.visibleColumnWindow)) {
+    hw.invalidateLaneSliceCache();
+  }
+
+  const vpH = hw.els.graphViewport?.clientHeight || 600;
+  const { start, end } = hw.visibleLaneRange(hw.state.scrollTop, vpH, catalog.lanes.length);
+
+  if (end < start) {
+    [...hw.graphRenderCtx.renderedLanes].forEach((i) => hw.unmountLaneSlice(i));
+    hw.graphRenderCtx.busG.selectAll('*').remove();
+    return;
+  }
+
+  const toRemove = [...hw.graphRenderCtx.renderedLanes].filter((i) => i < start || i > end);
+  toRemove.forEach((i) => hw.unmountLaneSlice(i));
+
+  for (let i = start; i <= end; i += 1) {
+    if (!hw.renderIsAlive(gen)) return;
+    if (!hw.graphRenderCtx.renderedLanes.has(i)) {
+      hw.mountLaneSlice(i);
+      if (!hw.state.viewportInteracting) await hw.yieldToNextFrame();
+    }
+  }
+
+  if (!hw.renderIsAlive(gen)) return;
+  if (!hw.state.viewportInteracting) {
+    hw.renderBusesInRange(start, end);
+    hw.tryAssignDefaultPulse(start, end, options);
+    hw.setPulseNode(hw.state.pulseNodeId);
+    hw.updateGraphFocus();
+    hw.updateSelectionVisuals();
+  }
+  hw.refreshNodeIndex();
+
+  if (hw.els.statFiles) {
+    const visible = end - start + 1;
+    hw.els.statFiles.textContent = `${visible}/${catalog.lanes.length} lanes`;
+  }
+}
+
+async function bootstrapViewportRender(gen, options = {}) {
+  if (!hw.state.parsed || !hw.renderIsAlive(gen)) return;
+  hw.hideTooltip();
+  hw.clearError();
+  hw.state.animateNext = false;
+  hw.setGraphStreaming(true);
+
+  try {
+    hw.state.laneSliceCache = new Map();
+    const catalog = hw.buildLaneCatalog(hw.state.parsed);
+    if (!hw.renderIsAlive(gen)) return;
+    hw.state.catalog = catalog;
+
+    hw.updatePluginBar(catalog.lanes.length);
+
+    if (hw.isPluginHost() && catalog.lanes.length === 0) {
+      hw.graphRenderCtx = null;
+      hw.state.catalog = null;
+      if (hw.els.graphSvg) hw.els.graphSvg.innerHTML = '';
+      hw.showPluginEmptyGit();
+      return;
+    }
+
+    hw.els.graphEmpty?.classList.add('hidden');
+    if (hw.els.graphHint) hw.els.graphHint.hidden = false;
+    if (hw.els.graphZoom) hw.els.graphZoom.hidden = false;
+    hw.prepareFileRailAllRows(catalog.lanes);
+    hw.prepareGraphShell(catalog);
+    hw.finalizeGraphView(catalog);
+
+    await hw.syncVisibleLanes(gen, options);
+    if (hw.renderIsAlive(gen) && !hw.applyNewHeadFocusAfterRender()) {
+      hw.updateGraphFocus();
+      hw.syncNodeRippleVisuals();
+    }
+    hw.updateStats(hw.state.parsed);
+    hw.updatePaginationUI(hw.state.parsed);
+  } catch (e) {
+    if (hw.renderIsAlive(gen)) hw.showError(e.message || String(e));
+  } finally {
+    if (hw.renderIsAlive(gen)) hw.setGraphStreaming(false);
+  }
+}
+
 function scheduleViewportSync(options = {}) {
   if (!hw.state.catalog || !hw.graphRenderCtx) return;
   if (hw.viewportSyncQueued) return;
@@ -376,7 +466,7 @@ function scheduleViewportSync(options = {}) {
   requestAnimationFrame(async () => {
     hw.viewportSyncQueued = false;
     if (!hw.renderIsAlive(gen)) return;
-    await syncVisibleLanes(gen, options);
+    await hw.syncVisibleLanes(gen, options);
   });
 }
 
@@ -385,7 +475,7 @@ function scheduleRenderFromState(options = {}) {
   hw.graphRenderCtx = null;
   hw.state.catalog = null;
   hw.state.laneSliceCache = null;
-  bootstrapViewportRender(gen, options);
+  hw.bootstrapViewportRender(gen, options);
 }
 
 Object.assign(hw, {
@@ -409,6 +499,8 @@ Object.assign(hw, {
   collectNodesFromRange,
   tryAssignDefaultPulse,
   finalizeGraphView,
+  syncVisibleLanes,
+  bootstrapViewportRender,
   scheduleViewportSync,
   scheduleRenderFromState,
 });
