@@ -242,6 +242,7 @@
 2026-05-25 | P2 | 🔄 | 分支栏全量 + 多选融合 | git for-each-ref、融合条、插入 Chat 任务
 2026-05-25 | 协议 | ✅ | AGENTS.md | vibe coding：必 commit、有 origin 必 push、分支仅 feature/*
 2026-05-25 | Claude | ✅ | CLAUDE.md + .claude/rules/ | Claude Code 会话自动加载，无需 @；用户模板 docs/templates/
+2026-05-25 | P2 | 🔄 | 主泳道新 HEAD 聚焦 | reload 后比对 snapshot，平移+脉冲+扫光；滚动同步与平移性能（本地）
 ```
 
 ---

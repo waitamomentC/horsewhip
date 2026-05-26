@@ -538,6 +538,57 @@ body:has(.hw-boundary:not([hidden])) .stage {
   opacity: 0.92;
 }
 
+/* Pan/scroll: GPU layer + pause ripples so nodes don't stutter */
+.graph-viewport--panning .graph-main {
+  will-change: transform;
+}
+
+.graph-viewport--panning .node-ripple,
+.graph-viewport--panning .version-ruler__pulse-ring {
+  animation-play-state: paused !important;
+  opacity: 0 !important;
+}
+
+.graph-viewport--panning .link-core {
+  transition: none !important;
+}
+
+/* New commit / merge landed on main — brief arrival highlight */
+.graph-viewport.hw-head-arrival::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 45;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    rgba(74, 222, 128, 0.06) 40%,
+    rgba(251, 191, 36, 0.28) 50%,
+    rgba(74, 222, 128, 0.06) 60%,
+    transparent 100%
+  );
+  animation: hw-head-arrival-sweep 1.1s ease-out;
+}
+
+@keyframes hw-head-arrival-sweep {
+  0% {
+    transform: translateX(70%);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(-70%);
+    opacity: 0;
+  }
+}
+
+.graph-viewport.hw-head-arrival .version-ruler__dot--head {
+  filter: drop-shadow(0 0 6px rgba(251, 191, 36, 0.95));
+}
+
 .graph-viewport {
   flex: 1;
   position: relative;
@@ -715,6 +766,12 @@ body:has(.hw-boundary:not([hidden])) .stage {
   pointer-events: none;
 }
 
+.version-ruler__progress--branch {
+  stroke-width: 1.75;
+  opacity: 0.55;
+  stroke-dasharray: none;
+}
+
 .version-ruler__vline--future {
   opacity: 0.14;
 }
@@ -816,7 +873,7 @@ body:has(.hw-boundary:not([hidden])) .stage {
   pointer-events: none;
 }
 
-.lane-guide--branch { stroke-dasharray: 6 4; opacity: 0.28; }
+.lane-guide--branch { opacity: 0.28; }
 
 .link-group { pointer-events: none; }
 .link-segment {
@@ -829,7 +886,10 @@ body:has(.hw-boundary:not([hidden])) .stage {
 .link-core--stale { stroke-width: 2.5; }
 .link-core--active { stroke-width: 3; }
 
-.link-fork .link-core--active,
+.link-fork .link-core--active {
+  opacity: 0.88;
+}
+
 .link-merge .link-core--active {
   stroke-width: 2.75;
   opacity: 0.92;
@@ -844,7 +904,6 @@ body:has(.hw-boundary:not([hidden])) .stage {
 .link-bus .link-core--stale,
 .link-bus .link-core--active {
   stroke-width: 0.75;
-  stroke-dasharray: 1.5 5;
   stroke-linecap: round;
   opacity: 0.26;
   pointer-events: none;
@@ -976,15 +1035,6 @@ body.hw-plugin .hw-copy-toast { bottom: 40px; }
 
 .node-group--fork-anchor.node-group--focus,
 .node-group--fork-anchor.node-group--hover {
-  opacity: 1;
-}
-
-.node-group--merge-anchor .node-anchor-ring--merge {
-  opacity: 0.72;
-}
-
-.node-group--merge-anchor.node-group--focus .node-anchor-ring--merge,
-.node-group--merge-anchor.node-group--hover .node-anchor-ring--merge {
   opacity: 1;
 }
 

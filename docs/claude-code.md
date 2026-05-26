@@ -31,24 +31,29 @@
 
 ### 一键安装（在项目根目录执行）
 
+协议文件目前在分支 **`experiment/per-folder-version`**（`main` 尚未合并）。`curl` 的 raw 地址必须带**分支名**。
+
 ```bash
 cd /path/to/your-project
+
+HW_BRANCH=experiment/per-folder-version
 
 mkdir -p .claude/rules
 
 curl -fsSL -o .claude/rules/horsewhip-protocol.md \
-  https://raw.githubusercontent.com/waitamomentC/horsewhip/main/.claude/rules/horsewhip-protocol.md
+  "https://raw.githubusercontent.com/waitamomentC/horsewhip/${HW_BRANCH}/.claude/rules/horsewhip-protocol.md"
 
 curl -fsSL -o CLAUDE.md \
-  https://raw.githubusercontent.com/waitamomentC/horsewhip/main/docs/templates/CLAUDE.horsewhip-user.md
+  "https://raw.githubusercontent.com/waitamomentC/horsewhip/${HW_BRANCH}/docs/templates/CLAUDE.horsewhip-user.md"
 ```
 
 编辑 **`CLAUDE.md`** 文末，补上你们项目的构建/测试命令。
 
-**离线 / 无 curl**：
+**离线 / 无 curl**（克隆时 **`-b` 指定分支**）：
 
 ```bash
-git clone https://github.com/waitamomentC/horsewhip.git /tmp/horsewhip
+git clone -b experiment/per-folder-version --depth 1 \
+  https://github.com/waitamomentC/horsewhip.git /tmp/horsewhip
 mkdir -p .claude/rules
 cp /tmp/horsewhip/.claude/rules/horsewhip-protocol.md .claude/rules/
 cp /tmp/horsewhip/docs/templates/CLAUDE.horsewhip-user.md ./CLAUDE.md

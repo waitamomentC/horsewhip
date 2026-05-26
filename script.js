@@ -84,6 +84,10 @@
     highlightBranchName: null,
     /** Multi-branch pick for AI fusion → main. */
     selectedBranchNames: new Set(),
+    /** True while user pans/scrolls — skip per-lane rAF mount & pause ripples. */
+    viewportInteracting: false,
+    /** Snapshot before loadLog / reload — detect new HEAD on main swimlane. */
+    headSnapshotBeforeLoad: null,
   };
 
   let whipAudioContext = null;
@@ -97,6 +101,7 @@
   let scrollSync = false;
   let graphRenderCtx = null;
   let viewportSyncQueued = false;
+  let viewportInteractEndTimer = null;
   let svgRoot;
   let gMain;
   let gScroll;
@@ -201,7 +206,20 @@
     };
   }
 
-  function parseGitLog(text) {
+  /** Trunk HEAD = main/master tip, not newest commit in log (e.g. TA-only-test). */
+  function resolveHeadHash(commits, commitMap, gitBranches) {
+    for (const name of ['main', 'master']) {
+      const tip = gitBranches?.find((b) => b.name === name)?.hash;
+      if (tip && commitMap[tip]) return tip;
+    }
+    for (const name of ['main', 'master']) {
+      const hit = commits.find((c) => (c.refs || []).some((r) => normalizeRefName(r) === name));
+      if (hit) return hit.hash;
+    }
+    return commits[commits.length - 1]?.hash || null;
+  }
+
+  function parseGitLog(text, options = {}) {
     const commits = [];
     let current = null;
 
@@ -264,7 +282,8 @@
 
     commits.reverse();
     const commitMap = buildCommitMap(commits);
-    const dag = analyzeDAG(commits, commitMap);
+    const headHash = resolveHeadHash(commits, commitMap, options.gitBranches || []);
+    const dag = analyzeDAG(commits, commitMap, headHash);
 
     commits.forEach((c, i) => {
       c.versionIndex = i + 1;
@@ -342,6 +361,15 @@
     return String(raw || '').replace(/^origin\//, '').replace(/^HEAD -> /, '').trim();
   }
 
+  function commitBelongsToBranch(commit, branchName) {
+    if (!commit || !branchName) return false;
+    const bn = normalizeRefName(branchName).toLowerCase();
+    if (!bn) return false;
+    if ((commit.refs || []).some((r) => normalizeRefName(r).toLowerCase() === bn)) return true;
+    const sub = (commit.subject || '').toLowerCase();
+    return sub.includes(bn) || sub.includes(`on ${bn} branch`);
+  }
+
   function hasBranchRef(commit) {
     if (!commit?.refs?.length) return false;
     const known = branchRefNames();
@@ -361,15 +389,68 @@
     return hits.length === 1 ? commitMap[hits[0]] : null;
   }
 
+  /**
+   * Merge commit for THIS branch only: 2nd parent must be on the branch chain.
+   * (e.g. 23a5435 merges TA branch — must not attach to TA-only-test.)
+   */
   function findMergeCommitForBranch(parsed, chain) {
-    const tipSet = new Set(chain.map((c) => c.hash));
-    for (const c of parsed.commits) {
-      if (c.parents.length < 2) continue;
+    if (!chain.length) return null;
+    const chainSet = new Set(chain.map((c) => c.hash));
+    const candidates = [];
+    parsed.commits.forEach((c) => {
+      if (c.parents.length < 2) return;
       const branchParent = c.parents[1];
-      if (tipSet.has(branchParent)) return c.hash;
-      if (chain.some((x) => x.hash === branchParent)) return c.hash;
-    }
+      if (!branchParent || !chainSet.has(branchParent)) return;
+      const mergeCol = c.versionIndex ?? c.displayColumn ?? 0;
+      const allAfterMerge = chain.every((x) => {
+        const col = x.versionIndex ?? x.displayColumn ?? 0;
+        return col > mergeCol;
+      });
+      if (allAfterMerge) return;
+      candidates.push(c);
+    });
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => {
+      const ca = a.versionIndex ?? a.displayColumn ?? 0;
+      const cb = b.versionIndex ?? b.displayColumn ?? 0;
+      return ca - cb;
+    });
+    return candidates[0].hash;
+  }
+
+  function resolveSegmentMergeHash(parsed, chain, seg) {
+    const found = findMergeCommitForBranch(parsed, chain);
+    if (found) return found;
+    const mc = seg?.mergeHash && parsed.commitMap[seg.mergeHash];
+    const bp = mc?.parents?.[1];
+    if (mc && bp && chain.some((c) => c.hash === bp)) return seg.mergeHash;
     return null;
+  }
+
+  /** Branch merged once but still iterating — do not chase later main merges (e.g. 23a5435). */
+  function branchSegmentFrozenMerge(seg, parsed) {
+    return Boolean(seg?.continued || branchMergeIsBehindTip(seg, parsed));
+  }
+
+  function applyBranchSegmentFromTip(seg, parsed, tip, chain, forkHash) {
+    const commitMap = parsed.commitMap;
+    const mainlineSet = parsed.mainlineSet;
+    const mergeHash = resolveSegmentMergeHash(parsed, chain, seg);
+    const commits = chain.length ? chain : (tip ? [commitMap[tip]].filter(Boolean) : []);
+    const commitSet = new Set(commits.map((c) => c.hash));
+    Object.assign(seg, {
+      forkHash: forkHash || seg?.forkHash || null,
+      mergeHash,
+      merged: Boolean(mergeHash),
+      continued: false,
+      commits,
+      commitSet,
+      forkGraphX: forkHash ? commitMap[forkHash]?.graphX ?? null : seg?.forkGraphX ?? null,
+      mergeGraphX: mergeHash ? commitMap[mergeHash]?.graphX ?? null : null,
+      outOfLog: false,
+    });
+    seg.continued = branchMergeIsBehindTip(seg, parsed)
+      || (!mergeHash && tip && !mainlineSet.has(tip));
   }
 
   /** Ensure every local git branch becomes a branchSegment for swimlane ⎇ rows. */
@@ -381,8 +462,17 @@
 
     branches.forEach((b) => {
       if (!b?.name || /^(main|master)$/i.test(b.name)) return;
-      if (existing.has(b.name)) return;
       const tip = b.hash ? resolveCommitHash(b.hash, commitMap) : null;
+      const prior = parsed.branchSegments.find((s) => s.id === b.name || s.name === b.name);
+      if (prior && tip) {
+        const { chain, forkHash } = collectBranchChainToFork(
+          tip.hash, commitMap, mainlineSet, prior.name || b.name,
+        );
+        applyBranchSegmentFromTip(prior, parsed, tip, chain, forkHash);
+        existing.add(b.name);
+        return;
+      }
+      if (existing.has(b.name)) return;
       if (!tip) {
         parsed.branchSegments.push({
           id: b.name,
@@ -401,7 +491,7 @@
         return;
       }
 
-      const { chain, forkHash } = collectBranchChainToFork(tip.hash, commitMap, mainlineSet);
+      const { chain, forkHash } = collectBranchChainToFork(tip.hash, commitMap, mainlineSet, b.name);
       if (!chain.length || !forkHash || forkHash === tip.hash) {
         parsed.branchSegments.push({
           id: b.name,
@@ -420,21 +510,21 @@
         return;
       }
 
-      const mergeHash = findMergeCommitForBranch(parsed, chain);
-      const commitSet = new Set(chain.map((c) => c.hash));
-      parsed.branchSegments.push({
+      const seg = {
         id: b.name,
         name: b.name,
         forkHash,
-        mergeHash,
-        merged: Boolean(mergeHash),
-        continued: !mergeHash && !mainlineSet.has(tip.hash),
+        mergeHash: null,
+        merged: false,
+        continued: false,
         commits: chain,
-        commitSet,
-        forkGraphX: commitMap[forkHash]?.graphX ?? null,
-        mergeGraphX: mergeHash ? commitMap[mergeHash]?.graphX : null,
+        commitSet: new Set(),
+        forkGraphX: null,
+        mergeGraphX: null,
         outOfLog: false,
-      });
+      };
+      applyBranchSegmentFromTip(seg, parsed, tip, chain, forkHash);
+      parsed.branchSegments.push(seg);
       existing.add(b.name);
     });
   }
@@ -451,27 +541,39 @@
     return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  /** Walk first-parent from tip until trunk; fork = last trunk commit before branch-only chain. */
-  function collectBranchChainToFork(tipHash, commitMap, trunkSet) {
+  /**
+   * Walk first-parent from branch tip until trunk (e.g. only-test: e2fb829 → a2d57ea, fork 1492345).
+   * Include commits that are also on main if they lie on this branch line.
+   */
+  function collectBranchChainToFork(tipHash, commitMap, trunkSet, branchName) {
     const chain = [];
     let cur = commitMap[tipHash];
     while (cur) {
       chain.unshift(cur);
       const p = cur.parents?.[0];
       if (!p) break;
-      if (trunkSet.has(p)) return { chain, forkHash: p };
-      const parent = commitMap[p];
-      if (!parent) break;
-      cur = parent;
+      if (trunkSet.has(p)) {
+        const pc = commitMap[p];
+        const gp = pc?.parents?.[0];
+        if (branchName && pc && commitBelongsToBranch(pc, branchName) && gp) {
+          chain.unshift(pc);
+          return { chain, forkHash: gp };
+        }
+        return { chain, forkHash: p };
+      }
+      cur = commitMap[p];
     }
-    return { chain: [], forkHash: null };
+    return { chain, forkHash: null };
   }
 
-  function buildTrunkLaneCommitSet(headHash, branchSegments, commitMap) {
+  function buildTrunkLaneCommitSet(headHash, branchSegments, commitMap, mainlineSet) {
     const interior = new Set();
     branchSegments.forEach((seg) => {
       seg.commits.forEach((c) => {
-        if (c.hash !== seg.forkHash) interior.add(c.hash);
+        if (c.hash === seg.forkHash) return;
+        // Junction commits on main (e.g. a2d57ea) stay on parent swimlane.
+        if (mainlineSet?.has(c.hash)) return;
+        interior.add(c.hash);
       });
     });
     const trunk = new Set();
@@ -485,8 +587,8 @@
     return trunk;
   }
 
-  function analyzeDAG(commits, commitMap) {
-    const headHash = commits[commits.length - 1].hash;
+  function analyzeDAG(commits, commitMap, headHash) {
+    const resolvedHead = headHash || commits[commits.length - 1]?.hash;
     const hasParents = commits.some((c) => c.parents.length > 0);
     const graphX = {};
 
@@ -499,13 +601,13 @@
         trunkLaneCommitSet: mainlineSet,
         branchSegments: [],
         graphX,
-        headHash,
+        headHash: resolvedHead,
       };
     }
 
     const mainlineSet = new Set();
     const mainlineOrder = [];
-    let cur = headHash;
+    let cur = resolvedHead;
     while (cur && commitMap[cur]) {
       mainlineSet.add(cur);
       mainlineOrder.unshift(cur);
@@ -530,10 +632,11 @@
       const branchTip = c.parents[1];
       const chain = collectBranchCommits(branchTip, mainlineSet, commitMap);
       if (!chain.length) return;
-      const forkHash = collectBranchChainToFork(branchTip, commitMap, mainlineSet).forkHash
+      if (!chain.some((x) => x.hash === branchTip)) return;
+      const name = extractBranchName(chain) || `branch-${branchSegments.length + 1}`;
+      const forkHash = collectBranchChainToFork(branchTip, commitMap, mainlineSet, name).forkHash
         || chain[0].parents[0];
       if (!forkHash) return;
-      const name = extractBranchName(chain) || `branch-${branchSegments.length + 1}`;
       const commitSet = new Set(chain.map((x) => x.hash));
       chain.forEach((x) => claimedBranch.add(x.hash));
       branchSegments.push({
@@ -550,15 +653,15 @@
       });
     });
 
-    const mergedForks = new Set(branchSegments.map((s) => s.forkHash));
-    const headTip = commitMap[headHash];
+    const headTip = commitMap[resolvedHead];
     [...commits].reverse().forEach((c) => {
       if (!hasBranchRef(c)) return;
       if (claimedBranch.has(c.hash)) return;
-      const { chain, forkHash } = collectBranchChainToFork(c.hash, commitMap, mainlineSet);
-      if (!chain.length || !forkHash || mergedForks.has(forkHash)) return;
+      const name = extractBranchName([c]) || extractBranchName([commitMap[c.hash]].filter(Boolean))
+        || `branch-${branchSegments.length + 1}`;
+      const { chain, forkHash } = collectBranchChainToFork(c.hash, commitMap, mainlineSet, name);
+      if (!chain.length || !forkHash) return;
       if (chain.some((x) => claimedBranch.has(x.hash))) return;
-      const name = extractBranchName(chain) || `branch-${branchSegments.length + 1}`;
       const commitSet = new Set(chain.map((x) => x.hash));
       chain.forEach((x) => claimedBranch.add(x.hash));
       const continued = chain.some((x) => hasBranchRef(x)) && headTip && !hasBranchRef(headTip);
@@ -574,12 +677,13 @@
         forkGraphX: graphX[forkHash],
         mergeGraphX: null,
       });
-      mergedForks.add(forkHash);
     });
 
-    const trunkLaneCommitSet = buildTrunkLaneCommitSet(headHash, branchSegments, commitMap);
+    const trunkLaneCommitSet = buildTrunkLaneCommitSet(
+      resolvedHead, branchSegments, commitMap, mainlineSet,
+    );
 
-    return { mainlineSet, mainlineOrder, trunkLaneCommitSet, branchSegments, graphX, headHash };
+    return { mainlineSet, mainlineOrder, trunkLaneCommitSet, branchSegments, graphX, headHash: resolvedHead };
   }
 
   /** One integer column per commit (upload); branch commits use same V scale, no fractional slots. */
@@ -700,6 +804,17 @@
     return head?.versionIndex ?? head?.displayColumn ?? parsed?.commits?.length ?? 0;
   }
 
+  /** Furthest loaded upload column (includes branch-only commits after main HEAD). */
+  function maxLoadedUploadColumn(parsed) {
+    if (!parsed?.commits?.length) return 0;
+    let max = 0;
+    parsed.commits.forEach((c) => {
+      const col = c.versionIndex ?? c.displayColumn ?? 0;
+      if (col > max) max = col;
+    });
+    return max;
+  }
+
   function versionLabelWithSubject(parsed, columnV, maxSubject = 14) {
     const base = PER_LANE_VERSION ? formatGlobalCommitColumn(columnV) : formatDisplayVersion(columnV);
     const headV = headUploadColumn(parsed) || 0;
@@ -720,9 +835,10 @@
 
   function rulerExtent(parsed) {
     const headV = headMainlineVersion(parsed) || 0;
+    const loadedMax = maxLoadedUploadColumn(parsed);
     let extent = CONFIG.RULER_PRESET;
-    if (headV >= CONFIG.RULER_EXPAND_THRESHOLD) extent = CONFIG.RULER_EXPAND_TO;
-    return Math.max(extent, headV + 1);
+    if (Math.max(headV, loadedMax) >= CONFIG.RULER_EXPAND_THRESHOLD) extent = CONFIG.RULER_EXPAND_TO;
+    return Math.max(extent, headV + 1, loadedMax + 1);
   }
 
   function collectBranchCommits(branchTip, mainlineSet, commitMap) {
@@ -759,6 +875,205 @@
   function segmentTouchesLane(seg, lane) {
     if (lane.isHeader || lane.isBranchLane) return false;
     return seg.commits.some((c) => c.files.some((f) => fileMatchesLane(f, lane)));
+  }
+
+  /** Branch chain fully on first-parent trunk (e.g. fast-forward — no merge commit). */
+  function branchSegmentFullyOnMainline(seg, parsed) {
+    if (!seg?.commits?.length) return false;
+    const trunk = parsed.mainlineSet;
+    return seg.commits.every((c) => trunk.has(c.hash));
+  }
+
+  function isReachableFrom(ancestorHash, descendantHash, commitMap) {
+    if (!ancestorHash || !descendantHash || !commitMap) return false;
+    const seen = new Set();
+    const stack = [descendantHash];
+    while (stack.length) {
+      const h = stack.pop();
+      if (!h || seen.has(h)) continue;
+      if (h === ancestorHash) return true;
+      seen.add(h);
+      const c = commitMap[h];
+      if (!c?.parents) continue;
+      c.parents.forEach((p) => { if (p) stack.push(p); });
+    }
+    return false;
+  }
+
+  /** True when merge is already in this branch's past (new commits after an old merge). */
+  function branchMergeIsBehindTip(seg, parsed) {
+    const tip = seg.commits[seg.commits.length - 1];
+    const mc = segmentOwnsMerge(seg, parsed) ? parsed.commitMap[seg.mergeHash] : null;
+    if (!tip || !mc) return false;
+    return isReachableFrom(mc.hash, tip.hash, parsed.commitMap)
+      && !isReachableFrom(tip.hash, mc.hash, parsed.commitMap);
+  }
+
+  /** Branch-side tip at merge time (merge 2nd parent), not the current iterating tip. */
+  function branchTipAtMerge(seg, parsed) {
+    const mc = segmentOwnsMerge(seg, parsed) ? parsed.commitMap[seg.mergeHash] : null;
+    if (mc?.parents?.length >= 2) {
+      const p = parsed.commitMap[mc.parents[1]];
+      if (p) return p;
+    }
+    if (!branchMergeIsBehindTip(seg, parsed)) {
+      return seg.commits[seg.commits.length - 1] || null;
+    }
+    const mergeCol = mc?.versionIndex ?? mc?.displayColumn;
+    if (mergeCol == null) return seg.commits[seg.commits.length - 1] || null;
+    let best = null;
+    seg.commits.forEach((c) => {
+      const col = c.versionIndex ?? c.displayColumn;
+      if (col > mergeCol) return;
+      if (!best || col > (best.versionIndex ?? best.displayColumn)) best = c;
+    });
+    return best || seg.commits[seg.commits.length - 1] || null;
+  }
+
+  function coMergeLookupTip(seg, parsed) {
+    return branchMergeIsBehindTip(seg, parsed)
+      ? branchTipAtMerge(seg, parsed)
+      : seg.commits[seg.commits.length - 1];
+  }
+
+  /** FF batch with no mergeHash yet — earliest mainline merge whose 2nd parent is on this branch line. */
+  function findCoMergeLanding(seg, parsed) {
+    if (seg.mergeHash && parsed.commitMap[seg.mergeHash]) return null;
+    if (branchSegmentFrozenMerge(seg, parsed)) return null;
+    const tip = coMergeLookupTip(seg, parsed);
+    if (!tip) return null;
+    let best = null;
+    parsed.commits.forEach((c) => {
+      if (!c.parents || c.parents.length < 2) return;
+      if (!parsed.mainlineSet.has(c.hash)) return;
+      const branchParent = c.parents[1];
+      if (!branchParent) return;
+      if (branchParent !== tip.hash && !isReachableFrom(branchParent, tip.hash, parsed.commitMap)) return;
+      if (!isReachableFrom(tip.hash, c.hash, parsed.commitMap)) return;
+      const col = c.versionIndex ?? c.displayColumn;
+      if (!best || col < best.column) best = { commit: c, column: col };
+    });
+    return best;
+  }
+
+  /** Column where branch rejoins parent — always this branch's mergeHash (e.g. 23a5435), never later main HEAD. */
+  function branchSegmentJoinColumn(seg, parsed) {
+    const mc = segmentOwnsMerge(seg, parsed) ? parsed.commitMap[seg.mergeHash] : null;
+    if (mc && mc.parents.length >= 2) {
+      return mc.versionIndex ?? mc.displayColumn;
+    }
+    const co = findCoMergeLanding(seg, parsed);
+    if (co) return co.column;
+    const tip = seg.commits[seg.commits.length - 1];
+    return tip ? (tip.versionIndex ?? tip.displayColumn) : null;
+  }
+
+  /** This branch's merge = 2nd parent is on this segment's commit chain (not another branch's merge). */
+  function segmentOwnsMerge(seg, parsed) {
+    const mc = seg.mergeHash && parsed.commitMap[seg.mergeHash];
+    if (!mc || mc.parents.length < 2) return false;
+    return seg.commitSet.has(mc.parents[1]);
+  }
+
+  function shouldDrawMergeIntoParent(seg, parsed) {
+    if (segmentOwnsMerge(seg, parsed)) {
+      return !branchSegmentFrozenMerge(seg, parsed);
+    }
+    if (branchSegmentFrozenMerge(seg, parsed)) return false;
+    if (findCoMergeLanding(seg, parsed)) return true;
+    if (branchSegmentFullyOnMainline(seg, parsed)) return true;
+    return false;
+  }
+
+  function branchSegmentLandingCommit(seg, parsed) {
+    const mc = segmentOwnsMerge(seg, parsed) ? parsed.commitMap[seg.mergeHash] : null;
+    if (mc) return mc;
+    const co = findCoMergeLanding(seg, parsed);
+    if (co) return co.commit;
+    if (seg.mergeHash) return parsed.commitMap[seg.mergeHash] || null;
+    return seg.commits[seg.commits.length - 1] || null;
+  }
+
+  function mergeLaneVersionOnParent(landing, seg, parentLane, parsed) {
+    if (landing?.laneVersions?.[parentLane.path] != null) {
+      return landing.laneVersions[parentLane.path];
+    }
+    let maxV = 0;
+    seg.commits.forEach((c) => {
+      const v = c.laneVersions?.[parentLane.path];
+      if (v != null) maxV = Math.max(maxV, v);
+    });
+    if (maxV > 0) return maxV;
+    return laneForkLaneVersion(parentLane, seg, parsed);
+  }
+
+  /** Merge arcs target mergeV — ensure parent swimlane has a commit node there (co-merge at C15). */
+  function ensureParentMergeLandingNode(nodes, bundlesOnLane, parentLane, seg, parsed, focusGraphX, head) {
+    if (!shouldDrawMergeIntoParent(seg, parsed)) return;
+    const mergeV = branchSegmentJoinColumn(seg, parsed);
+    if (mergeV == null || !columnInWindow(mergeV)) return;
+    if (nodeOnLaneAtColumn(nodes, parentLane.path, mergeV)) return;
+
+    const landing = branchSegmentLandingCommit(seg, parsed);
+    if (!landing) return;
+
+    const matched = landing.files.filter((f) => fileMatchesLane(f, parentLane));
+    const laneVer = mergeLaneVersionOnParent(landing, seg, parentLane, parsed);
+    const applies = matched.length > 0 && commitAppliesToLane(landing, parentLane, parsed);
+    const nodeId = applies
+      ? `${landing.hash}:${parentLane.path}@c${mergeV}`
+      : `merge-landing:${landing.hash}:${parentLane.path}:${mergeV}`;
+
+    const graphNode = {
+      id: nodeId,
+      hash: landing.hash,
+      author: landing.author,
+      date: landing.date,
+      subject: landing.subject || '',
+      versionIndex: landing.versionIndex,
+      laneVersion: PER_LANE_VERSION ? laneVer : null,
+      globalIndex: mergeV,
+      graphX: mergeV,
+      displayColumn: mergeV,
+      lanePath: parentLane.path,
+      laneIndex: parentLane.laneIndex,
+      lane: parentLane,
+      label: parentLane.label,
+      filePath: matched[0] || laneMatchPath(parentLane),
+      files: matched,
+      fileCount: matched.length,
+      isFocus: columnsMatch(mergeV, focusGraphX),
+      isPulse: nodeIsPulsing({ id: nodeId }),
+      isHead: landing.hash === head.hash,
+      isHub: true,
+      isMergeLanding: true,
+      isFolderAggregate: parentLane.type === 'folder' && !parentLane.isHeader,
+      isBranchLane: false,
+      branchName: seg.name,
+    };
+
+    if (!applies && !segmentTouchesLane(seg, parentLane)) return;
+
+    nodes.push(graphNode);
+    const hasBundle = bundlesOnLane.some(
+      (b) => b.commit.hash === landing.hash
+        && columnsMatch(b.displayColumn ?? b.graphX, mergeV),
+    );
+    if (!hasBundle) {
+      bundlesOnLane.push({
+        id: `bundle-${landing.hash}`,
+        commit: landing,
+        graphX: mergeV,
+        displayColumn: mergeV,
+        isFocus: graphNode.isFocus,
+        isHead: graphNode.isHead,
+        onPage: [{ lane: parentLane, laneIndex: parentLane.laneIndex, lanePath: parentLane.path, files: matched }],
+        hubLanePath: parentLane.path,
+        hubLaneIndex: parentLane.laneIndex,
+        files: matched,
+      });
+      bundlesOnLane.sort((a, b) => a.displayColumn - b.displayColumn);
+    }
   }
 
   function insertBranchLanes(baseLanes, branchSegments) {
@@ -956,7 +1271,7 @@
   function nodeCanShowTooltip(node) {
     if (!node || isVersionStepNode(node)) return false;
     if (node.isFolderAggregate) return true;
-    if (node.isForkAnchor || node.isMergeAnchor) return true;
+    if (node.isForkAnchor || node.isMergeAnchor || node.isMergeLanding) return true;
     const lane = node.lane;
     if (!lane || lane.isHeader) return false;
     if (lane.collapsed && !node.isFolderAggregate) return false;
@@ -1094,14 +1409,16 @@
 
   function laneSegmentBounds(lane, seg, parsed) {
     const forkV = laneForkV(lane, seg, parsed);
-    const mergeV = seg.merged && seg.mergeHash
-      ? (parsed.commitMap[seg.mergeHash]?.versionIndex ?? null)
+    const mergeV = shouldDrawMergeIntoParent(seg, parsed)
+      ? branchSegmentJoinColumn(seg, parsed)
       : null;
     return { forkV, mergeV };
   }
 
-  /** Parent lane must not show commits that only live on the branch gap for this file. */
+  /** Hide only non-trunk commits in an open branch gap; mainline uploads stay on parent swimlane. */
   function commitBlockedOnParentLane(commit, lane, parsed) {
+    const trunk = parsed.trunkLaneCommitSet || parsed.mainlineSet;
+    if (trunk.has(commit.hash)) return false;
     const v = commit.versionIndex;
     for (const seg of segmentsForLane(lane, parsed)) {
       const { forkV, mergeV } = laneSegmentBounds(lane, seg, parsed);
@@ -1118,11 +1435,10 @@
     segmentsForLane(lane, parsed).forEach((seg) => {
       const { forkV, mergeV } = laneSegmentBounds(lane, seg, parsed);
       if (!forkV) return;
-      if (!seg.merged) {
-        if (forkV < headV) holes.push({ from: forkV + 1, to: headV });
-        return;
+      if (seg.continued) return;
+      if (!seg.merged && forkV < headV) {
+        holes.push({ from: forkV + 1, to: headV });
       }
-      if (mergeV && mergeV > forkV + 1) holes.push({ from: forkV + 1, to: mergeV - 1 });
     });
     return holes;
   }
@@ -1150,12 +1466,21 @@
 
   function branchLaneTrackRange(lane, parsed, bundlesOnLane) {
     const headV = headMainlineVersion(parsed);
+    const seg = lane.branchSegment;
+    let vStart = 1;
+    let vEnd = headV;
     if (bundlesOnLane?.length) {
       const cols = bundlesOnLane.map((b) => b.displayColumn ?? b.commit.displayColumn);
-      return { vStart: Math.min(...cols), vEnd: Math.max(headV, ...cols) };
+      vStart = Math.min(...cols);
+      vEnd = Math.max(headV, ...cols);
+    } else if (seg?.commits?.length) {
+      vStart = Math.min(...seg.commits.map((c) => c.versionIndex ?? c.displayColumn));
     }
-    const first = lane.branchSegment?.commits?.[0]?.versionIndex;
-    return { vStart: first ?? 1, vEnd: headV };
+    if (seg && branchMergeIsBehindTip(seg, parsed)) {
+      const joinV = branchSegmentJoinColumn(seg, parsed);
+      if (joinV != null) vStart = Math.min(vStart, joinV);
+    }
+    return { vStart, vEnd };
   }
 
   function laneStepSkipColumns(lane, parsed, bundlesOnLane) {
@@ -1520,6 +1845,85 @@
     return parsed.commits.find((c) => c.hash === parsed.headHash) || parsed.commits[parsed.commits.length - 1];
   }
 
+  function captureHeadSnapshot() {
+    if (!state.parsed) return null;
+    const head = headCommit(state.parsed);
+    return {
+      hash: head.hash,
+      uploadCol: headUploadColumn(state.parsed),
+      column: head.versionIndex ?? head.displayColumn ?? 1,
+    };
+  }
+
+  function findHeadMainlinePulseNodeId(parsed) {
+    const head = headCommit(parsed);
+    const col = head.versionIndex ?? head.displayColumn ?? headUploadColumn(parsed);
+    const trunk = parsed.trunkLaneCommitSet || parsed.mainlineSet;
+    let fallback = null;
+    for (const n of Object.values(state.nodeIndex)) {
+      if (!n || !nodeCanShowTooltip(n) || isBranchGraphAnchor(n)) continue;
+      if (n.hash !== head.hash) continue;
+      if (!columnsMatch(n.displayColumn ?? n.graphX, col)) continue;
+      if (n.lane?.isBranchLane) continue;
+      if (trunk.has(n.hash)) return n.id;
+      if (!fallback) fallback = n.id;
+    }
+    return fallback;
+  }
+
+  function laneIndexForPulseNode(pulseId) {
+    const n = pulseId ? state.nodeIndex[pulseId] : null;
+    return n?.laneIndex ?? -1;
+  }
+
+  function runHeadArrivalPulse() {
+    const vp = els.graphViewport;
+    if (!vp) return;
+    vp.classList.add('hw-head-arrival');
+    playWhipCrackSound();
+    setTimeout(() => vp.classList.remove('hw-head-arrival'), 1400);
+  }
+
+  /** After git reload: if HEAD advanced, pan to main swimlane tip + pulse. */
+  function applyNewHeadFocusAfterRender() {
+    const snap = state.headSnapshotBeforeLoad;
+    state.headSnapshotBeforeLoad = null;
+    if (!snap || !state.parsed || !state.catalog) return false;
+
+    const parsed = state.parsed;
+    const head = headCommit(parsed);
+    const newUpload = headUploadColumn(parsed);
+    const newCol = head.versionIndex ?? head.displayColumn ?? newUpload;
+    const hashChanged = snap.hash !== head.hash;
+    const uploadAdvanced = newUpload > snap.uploadCol;
+    if (!hashChanged && !uploadAdvanced) return false;
+
+    state.focusGraphX = newCol;
+    state.focusedFilePath = null;
+    syncFileRailFocusHighlight();
+
+    refreshNodeIndex();
+    const pulseId = findHeadMainlinePulseNodeId(parsed);
+    state.pulseNodeId = pulseId;
+    setPulseNode(pulseId);
+    updateGraphFocus();
+    syncNodeRippleVisuals();
+
+    const laneIdx = laneIndexForPulseNode(pulseId);
+    const panX = panXForColumnFocus(newCol);
+    const scrollTop = laneIdx >= 0 ? scrollTopForLaneCenter(laneIdx) : state.scrollTop;
+
+    void animateViewportTo(panX, scrollTop, 520).then(() => {
+      runHeadArrivalPulse();
+      const msg = hashChanged
+        ? '主泳道新上传 · 已聚焦最新 Cn'
+        : '主泳道已更新 · 已聚焦';
+      showCopyToast(msg);
+    });
+
+    return true;
+  }
+
   /** Latest global upload column at HEAD (Cn / Vn on trunk ruler). */
   function headMainlineVersion(parsed) {
     return headUploadColumn(parsed);
@@ -1598,20 +2002,32 @@
     };
   }
 
-  function buildLaneVersionEvents(lane, parsed) {
+  function buildLaneVersionEvents(lane, parsed, graphNodes = []) {
     const events = [];
+    const seen = new Set();
+    const pushEvent = (globalColumn, laneVersion, commit) => {
+      const key = `${globalColumn}:${lane.path}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      events.push({ laneVersion, globalColumn, commit });
+    };
+
     parsed.commits.forEach((commit) => {
       if (!commitInColumnWindow(commit)) return;
       if (!commitAppliesToLane(commit, lane, parsed)) return;
       const laneV = commit.laneVersions?.[lane.path];
       if (laneV == null) return;
-      events.push({
-        laneVersion: laneV,
-        globalColumn: commit.displayColumn,
-        commit,
-      });
+      pushEvent(commit.displayColumn, laneV, commit);
     });
-    return events;
+
+    graphNodes.forEach((n) => {
+      if (n.lanePath !== lane.path || !n.isMergeLanding) return;
+      const col = n.displayColumn ?? n.graphX;
+      if (col == null || !columnInWindow(col)) return;
+      pushEvent(col, n.laneVersion ?? 1, parsed.commitMap[n.hash]);
+    });
+
+    return events.sort((a, b) => a.globalColumn - b.globalColumn);
   }
 
   /** Integer columns V{vStart}…V{vEnd} in viewport (lane track / step nodes). */
@@ -1632,7 +2048,7 @@
     return { graphX: col, displayColumn: col, node };
   }
 
-  /** Lane track: per-folder V bumps only on touches; idle dash when folder unchanged across uploads. */
+  /** Lane track: per-folder V bumps only on touches; solid segments between step nodes. */
   function addLaneVersionTrace(lane, nodes, links, parsed, bundlesOnLane) {
     if (lane.isHeader) return;
 
@@ -1675,7 +2091,7 @@
       return;
     }
 
-    const events = buildLaneVersionEvents(lane, parsed);
+    const events = buildLaneVersionEvents(lane, parsed, nodes);
     if (!events.length) return;
 
     events.forEach((ev, i) => {
@@ -1774,8 +2190,18 @@
     });
 
     bundlesOnLane.sort((a, b) => a.displayColumn - b.displayColumn);
+
+    if (!lane.isHeader && !lane.isBranchLane) {
+      (parsed.branchSegments || []).forEach((seg) => {
+        if (!segmentTouchesLane(seg, lane)) return;
+        ensureParentMergeLandingNode(
+          nodes, bundlesOnLane, lane, seg, parsed, focusGraphX, head,
+        );
+      });
+    }
+
     addLaneVersionTrace(lane, nodes, links, parsed, bundlesOnLane);
-    if (lane.isBranchLane) {
+    if (lane.isBranchLane && bundlesOnLane.length > 1) {
       for (let i = 1; i < bundlesOnLane.length; i += 1) {
         links.push({
           kind: 'lane-bridge',
@@ -1790,19 +2216,19 @@
 
     (parsed.branchSegments || []).forEach((seg) => {
       const forkCommit = parsed.commitMap[seg.forkHash];
-      const mergeCommit = seg.mergeHash ? parsed.commitMap[seg.mergeHash] : null;
-      if (!forkCommit) return;
-      catalog.lanes.forEach((branchLane) => {
-        if (!branchLane.isBranchLane || branchLane.branchSegment !== seg) return;
-        const parentLane = catalog.lanes.find((l) => l.path === branchLane.parentLanePath);
-        if (!parentLane) return;
+        const mergeCommit = seg.mergeHash ? parsed.commitMap[seg.mergeHash] : null;
+        const joinV = branchSegmentJoinColumn(seg, parsed);
+        const drawMerge = shouldDrawMergeIntoParent(seg, parsed);
+        if (!forkCommit) return;
+        catalog.lanes.forEach((branchLane) => {
+          if (!branchLane.isBranchLane || branchLane.branchSegment !== seg) return;
+          const parentLane = catalog.lanes.find((l) => l.path === branchLane.parentLanePath);
+          if (!parentLane) return;
 
-        const forkV = laneForkV(parentLane, seg, parsed);
-        const mergeV = mergeCommit
-          ? (mergeCommit.versionIndex ?? mergeCommit.displayColumn)
-          : null;
-        const forkX = versionX(forkV);
-        const mergeX = mergeV != null ? versionX(mergeV) : null;
+          const forkV = laneForkV(parentLane, seg, parsed);
+          const mergeV = drawMerge ? joinV : null;
+          const forkX = versionX(forkV);
+          const mergeX = mergeV != null ? versionX(mergeV) : null;
 
         const branchBundles = branchBundlesOnLane(parsed, catalog, seg, branchLane);
         const firstBranch = branchBundles[0];
@@ -1810,44 +2236,11 @@
 
         if (parentLane.laneIndex === laneIndex && firstBranch
           && (columnInWindow(forkV) || columnInWindow(firstBranch.displayColumn))) {
-          const forkNode = nodes.find((n) => n.lanePath === parentLane.path
-            && !isBranchGraphAnchor(n) && !isVersionStepNode(n)
-            && columnsMatch(n.displayColumn ?? n.graphX, forkV));
-          if (!forkNode && !nodeOnLaneAtColumn(nodes, parentLane.path, forkV)) {
-            nodes.push({
-              id: `fork-anchor:${seg.id}:${parentLane.path}`,
-              isForkAnchor: true,
-              branchName: seg.name,
-              hash: forkCommit.hash,
-              author: forkCommit.author,
-              date: forkCommit.date,
-              versionIndex: forkCommit.versionIndex,
-              globalIndex: forkV,
-              graphX: forkV,
-              displayColumn: forkV,
-              lanePath: parentLane.path,
-              laneIndex: parentLane.laneIndex,
-              lane: parentLane,
-              label: parentLane.label,
-              filePath: laneMatchPath(parentLane),
-              files: [],
-              fileCount: 0,
-              isFocus: columnsMatch(forkV, focusGraphX),
-              isPulse: false,
-              isHead: false,
-              isHub: false,
-              isFolderAggregate: false,
-              isBranchLane: false,
-            });
-          }
-          const forkCx = forkNode
-            ? versionX(forkNode.displayColumn ?? forkV)
-            : forkX;
           links.push({
             kind: 'fork',
-            x1: forkCx,
+            x1: forkX,
             y1: laneCenterY(parentLane.laneIndex),
-            x2: versionX(firstBranch.displayColumn),
+            x2: versionX(firstBranch.displayColumn ?? firstBranch.commit.displayColumn),
             y2: laneCenterY(branchLane.laneIndex),
             parentLane,
             branchLane,
@@ -1855,42 +2248,22 @@
           });
         }
 
-        if (seg.merged && mergeCommit && mergeV != null && branchLane.laneIndex === laneIndex
+        if (drawMerge && mergeV != null && branchLane.laneIndex === laneIndex
           && lastBranch
           && (columnInWindow(mergeV) || columnInWindow(lastBranch.displayColumn))) {
-          if (!nodeOnLaneAtColumn(nodes, branchLane.path, mergeV)) {
-            nodes.push({
-              id: `merge-anchor:${seg.id}:${branchLane.path}`,
-              isMergeAnchor: true,
-              branchName: seg.name,
-              hash: mergeCommit.hash,
-              author: mergeCommit.author,
-              date: mergeCommit.date,
-              versionIndex: mergeCommit.versionIndex,
-              globalIndex: mergeV,
-              graphX: mergeV,
-              displayColumn: mergeV,
-              lanePath: branchLane.path,
-              laneIndex: branchLane.laneIndex,
-              lane: branchLane,
-              label: branchLane.label,
-              filePath: laneMatchPath(branchLane),
-              files: [],
-              fileCount: 0,
-              isFocus: columnsMatch(mergeV, focusGraphX),
-              isPulse: false,
-              isHead: false,
-              isHub: false,
-              isFolderAggregate: false,
-              isBranchLane: true,
-            });
-          }
+          const histMerge = branchMergeIsBehindTip(seg, parsed);
+          const mergeSource = histMerge ? branchTipAtMerge(seg, parsed) : lastBranch.commit;
+          const mergeFromCol = mergeSource
+            ? (mergeSource.versionIndex ?? mergeSource.displayColumn)
+            : lastBranch.displayColumn;
+          const mergeFromX = versionX(mergeFromCol);
+          const mergeToX = mergeX ?? versionX(mergeV);
           links.push({
             kind: 'merge',
-            x1: versionX(lastBranch.displayColumn),
+            x1: mergeFromX,
             y1: laneCenterY(branchLane.laneIndex),
-            x2: mergeX,
-            y2: laneCenterY(branchLane.laneIndex),
+            x2: mergeToX,
+            y2: laneCenterY(parentLane.laneIndex),
             parentLane,
             branchLane,
             active: true,
@@ -2326,17 +2699,35 @@ git reset --hard ${hash}`;
     return lane ? lane.laneIndex : -1;
   }
 
+  /** Scrollable file list (`.file-rail__inner`), not the outer `.file-rail` shell. */
+  function fileRailScrollEl() {
+    return els.fileRailInner || els.fileRail;
+  }
+
+  function fileRailScrollViewportH() {
+    const el = fileRailScrollEl();
+    return el?.clientHeight || els.graphViewport?.clientHeight || 600;
+  }
+
+  function fileRailMaxScroll() {
+    const inner = els.fileRailInner;
+    const scrollEl = fileRailScrollEl();
+    if (!inner || !scrollEl) return 0;
+    return Math.max(0, inner.offsetHeight - scrollEl.clientHeight);
+  }
+
   function scrollTopForLaneCenter(laneIndex) {
-    const vpH = els.graphViewport?.clientHeight || 600;
+    const vpH = fileRailScrollViewportH();
     const laneY = laneCenterY(laneIndex);
-    const maxScroll = Math.max(0, (els.fileRailInner?.offsetHeight || 0) - (els.fileRail?.clientHeight || vpH));
+    const maxScroll = fileRailMaxScroll();
     return Math.max(0, Math.min(maxScroll, laneY - vpH / 2));
   }
 
   function syncFileRailScrollFromState() {
-    if (!els.fileRail) return;
+    const scrollEl = fileRailScrollEl();
+    if (!scrollEl) return;
     scrollSync = true;
-    els.fileRail.scrollTop = state.scrollTop;
+    scrollEl.scrollTop = state.scrollTop;
     scrollSync = false;
   }
 
@@ -2352,7 +2743,7 @@ git reset --hard ${hash}`;
     const startPan = state.panX ?? bounds.panMin;
     const startScroll = state.scrollTop ?? 0;
     const endPan = clampPan(targetPanX, bounds);
-    const maxScroll = Math.max(0, els.fileRailInner.offsetHeight - els.fileRail.clientHeight);
+    const maxScroll = fileRailMaxScroll();
     const endScroll = Math.max(0, Math.min(maxScroll, targetScrollTop));
     const needMove = Math.abs(endPan - startPan) > 0.5 || Math.abs(endScroll - startScroll) > 0.5;
 
@@ -2376,7 +2767,7 @@ git reset --hard ${hash}`;
       return Promise.resolve();
     }
 
-    gMain.interrupt();
+    stopViewportAnimation();
 
     return new Promise((resolve) => {
       d3.select(gMain.node())
@@ -2468,7 +2859,35 @@ git reset --hard ${hash}`;
   function sliceCacheKey(laneIndex) {
     const w = state.visibleColumnWindow;
     if (!w) return String(laneIndex);
-    return `${laneIndex}:${w.vMin.toFixed(2)}:${w.vMax.toFixed(2)}`;
+    const vMin = Math.floor(w.vMin);
+    const vMax = Math.ceil(w.vMax);
+    return `${laneIndex}:${vMin}:${vMax}`;
+  }
+
+  function columnWindowCacheChanged(prev, next) {
+    if (!prev || !next) return true;
+    return Math.floor(prev.vMin) !== Math.floor(next.vMin)
+      || Math.ceil(prev.vMax) !== Math.ceil(next.vMax);
+  }
+
+  function stopViewportAnimation() {
+    state.viewportAnimGeneration += 1;
+    if (gMain) d3.select(gMain.node()).interrupt('hw-viewport-pan');
+  }
+
+  function markViewportInteracting() {
+    if (!state.viewportInteracting) {
+      state.viewportInteracting = true;
+      els.graphViewport?.classList.add('graph-viewport--panning');
+    }
+    if (viewportInteractEndTimer) clearTimeout(viewportInteractEndTimer);
+    viewportInteractEndTimer = setTimeout(() => {
+      viewportInteractEndTimer = null;
+      state.viewportInteracting = false;
+      els.graphViewport?.classList.remove('graph-viewport--panning');
+      updateVisibleColumnWindow();
+      scheduleViewportSync();
+    }, 120);
   }
 
   function setGraphZoom(next) {
@@ -2630,9 +3049,14 @@ git reset --hard ${hash}`;
     nodeFocus.append('stop').attr('offset', '100%').attr('stop-color', '#c2410c');
   }
 
-  function appendLinkPath(parent, kind, active, d, datum, onClick, laneColor, laneColorDim) {
+  function appendLinkPath(parent, kind, active, d, datum, onClick, laneColor, laneColorDim, extraClass) {
     const variant = active ? 'active' : 'stale';
-    const group = parent.append('g').attr('class', `link-group link-group--${variant} link-${kind}`);
+    const group = parent.append('g').attr('class', [
+      'link-group',
+      `link-group--${variant}`,
+      `link-${kind}`,
+      extraClass || '',
+    ].filter(Boolean).join(' '));
 
     group.append('path')
       .attr('class', `link-segment link-core link-core--${variant} link-${kind}`)
@@ -2765,7 +3189,6 @@ git reset --hard ${hash}`;
       .attr('fill', 'none')
       .attr('stroke', color)
       .attr('stroke-width', 1.4)
-      .attr('stroke-dasharray', '2 2')
       .style('pointer-events', 'none');
     g.append('circle')
       .attr('class', 'node-anchor-dot')
@@ -2886,9 +3309,6 @@ git reset --hard ${hash}`;
   }
 
   function applyGraphTransform() {
-    if (!gMain) return;
-    state.viewportAnimGeneration += 1;
-    gMain.interrupt();
     applyGraphTransformImmediate();
   }
 
@@ -3317,12 +3737,13 @@ ${fileScope}
         linkG,
         'merge',
         link.active,
-        laneLine(link.x1, link.y1, link.x2, link.y2),
+        curveBridge(link.x1, link.y1, link.x2, link.y2),
         link,
         null,
         link.branchLane.color,
         link.branchLane.colorBright || link.branchLane.color,
       );
+      return;
     }
   }
 
@@ -3526,14 +3947,13 @@ ${fileScope}
     refreshNodeIndex();
     setPulseNode(state.pulseNodeId);
     runGraphEntrance();
-    const maxScroll = Math.max(0, catalog.contentHeight - els.graphViewport.clientHeight);
+    const maxScroll = Math.min(
+      Math.max(0, catalog.contentHeight - els.graphViewport.clientHeight),
+      fileRailMaxScroll(),
+    );
     state.scrollTop = Math.min(state.scrollTop, maxScroll);
     applyGraphTransform();
-    if (els.fileRail) {
-      scrollSync = true;
-      els.fileRail.scrollTop = state.scrollTop;
-      scrollSync = false;
-    }
+    syncFileRailScrollFromState();
   }
 
   function updatePluginBar(laneCount) {
@@ -3582,10 +4002,7 @@ ${fileScope}
 
     const prevCol = state.visibleColumnWindow;
     updateVisibleColumnWindow();
-    if (options.invalidateSlices || (prevCol && (
-      Math.abs(prevCol.vMin - state.visibleColumnWindow.vMin) > 0.4
-      || Math.abs(prevCol.vMax - state.visibleColumnWindow.vMax) > 0.4
-    ))) {
+    if (options.invalidateSlices || columnWindowCacheChanged(prevCol, state.visibleColumnWindow)) {
       invalidateLaneSliceCache();
     }
 
@@ -3605,17 +4022,21 @@ ${fileScope}
       if (!renderIsAlive(gen)) return;
       if (!graphRenderCtx.renderedLanes.has(i)) {
         mountLaneSlice(i);
-        await yieldToNextFrame();
+        if (!state.viewportInteracting) {
+          await yieldToNextFrame();
+        }
       }
     }
 
     if (!renderIsAlive(gen)) return;
-    renderBusesInRange(start, end);
-    tryAssignDefaultPulse(start, end, options);
+    if (!state.viewportInteracting) {
+      renderBusesInRange(start, end);
+      tryAssignDefaultPulse(start, end, options);
+      setPulseNode(state.pulseNodeId);
+      updateGraphFocus();
+      updateSelectionVisuals();
+    }
     refreshNodeIndex();
-    setPulseNode(state.pulseNodeId);
-    updateGraphFocus();
-    updateSelectionVisuals();
 
     if (els.statFiles) {
       const visible = end - start + 1;
@@ -3666,6 +4087,10 @@ ${fileScope}
       finalizeGraphView(catalog);
 
       await syncVisibleLanes(gen, options);
+      if (renderIsAlive(gen) && !applyNewHeadFocusAfterRender()) {
+        updateGraphFocus();
+        syncNodeRippleVisuals();
+      }
       updateStats(state.parsed);
       updatePaginationUI(state.parsed);
     } catch (e) {
@@ -3693,6 +4118,7 @@ ${fileScope}
     const baseline = rh - 8;
     const parsed = state.parsed;
     const headUploadIdx = headUploadColumn(parsed);
+    const loadedMaxCol = maxLoadedUploadColumn(parsed);
     const pulseCol = pulseColumn(parsed);
     const extent = rulerExtent(parsed);
     const extendX = versionColumnX(extent);
@@ -3702,8 +4128,8 @@ ${fileScope}
     for (let v = 1; v <= extent; v += 1) {
       const vx = versionColumnX(v);
       const uploadCommit = parsed ? commitAtUploadColumn(parsed, v) : null;
-      const isFuture = v > headUploadIdx;
-      const isLit = !!uploadCommit && v <= headUploadIdx;
+      const isFuture = v > loadedMaxCol;
+      const isLit = !!uploadCommit && !isFuture;
       const isHead = v === headUploadIdx;
       const isBranchOnly = isLit && uploadCommit && !uploadCommit.isMainline;
 
@@ -3763,6 +4189,15 @@ ${fileScope}
         .attr('class', 'version-ruler__progress')
         .attr('x1', versionColumnX(1))
         .attr('x2', versionColumnX(headUploadIdx))
+        .attr('y1', baseline)
+        .attr('y2', baseline);
+    }
+
+    if (loadedMaxCol > headUploadIdx) {
+      chromeG.append('line')
+        .attr('class', 'version-ruler__progress version-ruler__progress--branch')
+        .attr('x1', versionColumnX(headUploadIdx))
+        .attr('x2', versionColumnX(loadedMaxCol))
         .attr('y1', baseline)
         .attr('y2', baseline);
     }
@@ -4279,7 +4714,7 @@ ${fileScope}
     const subj = commitSubjectForNode(node);
     const fileLine = node.isForkAnchor
       ? `主泳道在此处分叉 → ⎇ ${node.branchName || 'branch'}`
-      : node.isMergeAnchor
+      : node.isMergeAnchor || node.isMergeLanding
         ? `分支合入主泳道 · ⎇ ${node.branchName || 'branch'}`
         : node.lane?.isBranchLane
           ? (() => {
@@ -4298,7 +4733,7 @@ ${fileScope}
             : files[0];
     const foot = node.isForkAnchor
       ? (PER_LANE_VERSION ? '从该文件夹版本处分出（横轴为上传 Cn）' : '从该版本列分出')
-      : node.isMergeAnchor
+      : node.isMergeAnchor || node.isMergeLanding
         ? (PER_LANE_VERSION ? '沿分支泳道合入（横轴为上传 Cn）' : '沿分支泳道合入该版本列')
         : node.isFolderAggregate
           ? '单击选中文件夹边界 · 双击详情 · 点小马鞭复制'
@@ -4459,13 +4894,14 @@ ${fileScope}
 
   function loadAndRender(text) {
     try {
+      state.headSnapshotBeforeLoad = captureHeadSnapshot();
       const savedExpanded = isPluginHost() ? new Set(state.expandedPaths) : null;
       state.rawLogText = text;
       state.commitLoadLimit = CONFIG.COMMIT_PAGE_SIZE;
       state.totalCommitsInLog = 0;
       const sliced = sliceLogByCommitLimit(text, state.commitLoadLimit);
       state.totalCommitsInLog = sliced.totalCommits;
-      const parsed = parseGitLog(sliced.text);
+      const parsed = parseGitLog(sliced.text, { gitBranches: state.gitBranches });
       parsed.totalCommitsInLog = sliced.totalCommits;
       parsed.loadedCommitCount = sliced.loaded;
       if (!state.gitBranches.length) {
@@ -4499,7 +4935,7 @@ ${fileScope}
     if (state.commitLoadLimit >= total) return;
     state.commitLoadLimit = Math.min(state.commitLoadLimit + CONFIG.COMMIT_PAGE_STEP, total);
     const sliced = sliceLogByCommitLimit(state.rawLogText, state.commitLoadLimit);
-    const parsed = parseGitLog(sliced.text);
+    const parsed = parseGitLog(sliced.text, { gitBranches: state.gitBranches });
     parsed.totalCommitsInLog = total;
     parsed.loadedCommitCount = sliced.loaded;
     state.parsed = parsed;
@@ -4509,6 +4945,7 @@ ${fileScope}
 
   function nudgePan(delta) {
     if (!state.parsed || !svgLayout) return;
+    stopViewportAnimation();
     const bounds = svgLayout.panBounds || computePanBounds();
     const panMin = bounds.panMin;
     const next = state.panX + delta;
@@ -4518,17 +4955,19 @@ ${fileScope}
     } else {
       state.panX = next;
     }
-    applyGraphTransform();
-    scheduleViewportSync({ invalidateSlices: true });
+    updateVisibleColumnWindow();
+    applyGraphTransformImmediate();
+    markViewportInteracting();
+    scheduleViewportSync();
   }
 
   function nudgeVerticalScroll(delta) {
-    const max = Math.max(0, els.fileRailInner.offsetHeight - els.fileRail.clientHeight);
+    stopViewportAnimation();
+    const max = fileRailMaxScroll();
     state.scrollTop = Math.max(0, Math.min(max, state.scrollTop + delta));
-    applyGraphTransform();
-    scrollSync = true;
-    els.fileRail.scrollTop = state.scrollTop;
-    scrollSync = false;
+    applyGraphTransformImmediate();
+    syncFileRailScrollFromState();
+    markViewportInteracting();
     scheduleViewportSync();
   }
 
@@ -4621,12 +5060,18 @@ ${fileScope}
     toggleWhipSoundMute();
   });
 
-  els.fileRail?.addEventListener('scroll', () => {
+  const onFileRailScroll = () => {
     if (scrollSync) return;
-    state.scrollTop = els.fileRail.scrollTop;
-    applyGraphTransform();
+    const scrollEl = fileRailScrollEl();
+    if (!scrollEl) return;
+    stopViewportAnimation();
+    state.scrollTop = scrollEl.scrollTop;
+    applyGraphTransformImmediate();
+    markViewportInteracting();
     scheduleViewportSync();
-  });
+  };
+  els.fileRailInner?.addEventListener('scroll', onFileRailScroll, { passive: true });
+  els.fileRail?.addEventListener('scroll', onFileRailScroll, { passive: true });
 
   els.graphViewport.addEventListener('wheel', (e) => {
     if (!state.parsed) return;

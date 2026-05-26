@@ -63,18 +63,24 @@ Git 只负责记录版本；马鞭不负责教你 merge，也不和 GitGraph 比
 
 #### Claude Code（推荐，会话自动读，不用每次 `@`）
 
+> **注意分支**：协议文件、`CLAUDE.md` 等目前在 **`experiment/per-folder-version`** 分支；`main` 上还没有。  
+> 下面 `curl` / `git clone -b …` 已指向该分支；日后合并进 `main` 后，把 URL 里的分支名改成 `main` 即可。
+
 在 **你的项目根目录** 执行（从 GitHub 下载马鞭协议；需联网）：
 
 ```bash
 cd /path/to/your-project
 
+# 与马鞭仓库当前开发分支一致（合并到 main 后改为 main）
+HW_BRANCH=experiment/per-folder-version
+
 mkdir -p .claude/rules
 
 curl -fsSL -o .claude/rules/horsewhip-protocol.md \
-  https://raw.githubusercontent.com/waitamomentC/horsewhip/main/.claude/rules/horsewhip-protocol.md
+  "https://raw.githubusercontent.com/waitamomentC/horsewhip/${HW_BRANCH}/.claude/rules/horsewhip-protocol.md"
 
 curl -fsSL -o CLAUDE.md \
-  https://raw.githubusercontent.com/waitamomentC/horsewhip/main/docs/templates/CLAUDE.horsewhip-user.md
+  "https://raw.githubusercontent.com/waitamomentC/horsewhip/${HW_BRANCH}/docs/templates/CLAUDE.horsewhip-user.md"
 ```
 
 然后编辑根目录 **`CLAUDE.md`**，在文末补上你们项目的构建/测试命令（模板里已留占位）。
@@ -92,14 +98,23 @@ claude
 | `.claude/rules/horsewhip-protocol.md` | 铁律全文（每轮自动加载） |
 | `CLAUDE.md` | 项目说明 + 马鞭摘要（每轮自动加载） |
 
-**无 curl / 离线**：克隆马鞭仓库后复制：
+**无 curl / 离线**：克隆马鞭仓库**指定分支**后复制：
 
 ```bash
-git clone https://github.com/waitamomentC/horsewhip.git /tmp/horsewhip
+git clone -b experiment/per-folder-version --depth 1 \
+  https://github.com/waitamomentC/horsewhip.git /tmp/horsewhip
+
 cd /path/to/your-project
 mkdir -p .claude/rules
 cp /tmp/horsewhip/.claude/rules/horsewhip-protocol.md .claude/rules/
 cp /tmp/horsewhip/docs/templates/CLAUDE.horsewhip-user.md ./CLAUDE.md
+```
+
+**整仓下载马鞭（含插件、网页）** 也要带分支，否则默认只有 `main` 上的旧内容：
+
+```bash
+git clone -b experiment/per-folder-version https://github.com/waitamomentC/horsewhip.git
+cd horsewhip
 ```
 
 若项目里 **已有** `CLAUDE.md`，不要覆盖；只复制 `horsewhip-protocol.md`，并把模板中的「马鞭」章节合并进现有 `CLAUDE.md`。
@@ -178,8 +193,10 @@ git log --all -200 --name-only --pretty=format:"%H|%P|%D|%an|%ad|%s"
 
 | 分支 / 版本 | 说明 |
 |-------------|------|
-| `main` | 稳定网页 + 插件基线 |
-| `experiment/per-folder-version` | 每夹 Vn + 全仓 Cn；插件 `0.6.0-ve.x` |
+| `main` | 较早稳定基线；**尚无** `AGENTS.md` / `CLAUDE.md` / 分支融合等最新功能 |
+| `experiment/per-folder-version` | **当前推荐**：每夹 Vn、分支栏、AI 融合、协议文档；插件 `0.6.0-ve.x` |
+
+远程安装协议、`curl` 下载、克隆仓库时，请使用 **`experiment/per-folder-version`**（见上文「配合 AI」）。合并进 `main` 后文档会改为默认 `main`。
 
 ---
 
