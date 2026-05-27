@@ -5,7 +5,8 @@ function shortenFolderLabel(label) {
   return label.endsWith('/') ? label : `${label}/`;
 }
 
-function renderVersionRuler(g, model, innerH) {
+/** 顶部固定：C1/C2… 刻度（不随纵向滚动离开视口） */
+function renderVersionRulerHeader(g) {
   const rh = hw.CONFIG.RULER_HEIGHT;
   const baseline = rh - 8;
   const parsed = hw.state.parsed;
@@ -14,8 +15,15 @@ function renderVersionRuler(g, model, innerH) {
   const pulseCol = hw.pulseColumn(parsed);
   const extent = hw.rulerExtent(parsed);
   const extendX = hw.versionColumnX(extent);
-  const gridG = g.append('g').attr('class', 'version-ruler__grid');
   const chromeG = g.append('g').attr('class', 'version-ruler');
+
+  chromeG.append('rect')
+    .attr('class', 'version-ruler__backdrop')
+    .attr('x', -8000)
+    .attr('y', 0)
+    .attr('width', 16000)
+    .attr('height', rh + 2)
+    .attr('fill', 'var(--bg)');
 
   for (let v = 1; v <= extent; v += 1) {
     const vx = hw.versionColumnX(v);
@@ -24,13 +32,6 @@ function renderVersionRuler(g, model, innerH) {
     const isLit = !!uploadCommit && !isFuture;
     const isHead = v === headUploadIdx;
     const isBranchOnly = isLit && uploadCommit && !uploadCommit.isMainline;
-
-    gridG.append('line')
-      .attr('class', `version-ruler__vline${isFuture ? ' version-ruler__vline--future' : ''}${isLit ? ' version-ruler__vline--lit' : ''}`)
-      .attr('x1', vx)
-      .attr('x2', vx)
-      .attr('y1', baseline)
-      .attr('y2', innerH);
 
     chromeG.append('line')
       .attr('class', [
@@ -107,6 +108,34 @@ function renderVersionRuler(g, model, innerH) {
   }
 }
 
+/** 随泳道纵向滚动：C 列淡竖线 */
+function renderVersionRulerGrid(g, model, innerH) {
+  const rh = hw.CONFIG.RULER_HEIGHT;
+  const parsed = hw.state.parsed;
+  const loadedMaxCol = hw.maxLoadedUploadColumn(parsed);
+  const extent = hw.rulerExtent(parsed);
+  const gridG = g.append('g').attr('class', 'version-ruler__grid');
+
+  for (let v = 1; v <= extent; v += 1) {
+    const vx = hw.versionColumnX(v);
+    const uploadCommit = parsed ? hw.commitAtUploadColumn(parsed, v) : null;
+    const isFuture = v > loadedMaxCol;
+    const isLit = !!uploadCommit && !isFuture;
+
+    gridG.append('line')
+      .attr('class', `version-ruler__vline${isFuture ? ' version-ruler__vline--future' : ''}${isLit ? ' version-ruler__vline--lit' : ''}`)
+      .attr('x1', vx)
+      .attr('x2', vx)
+      .attr('y1', rh)
+      .attr('y2', innerH);
+  }
+}
+
+function renderVersionRuler(g, model, innerH) {
+  hw.renderVersionRulerHeader(g);
+  hw.renderVersionRulerGrid(g, model, innerH);
+}
+
 function truncatePath(str) {
   if (str.length <= 44) return str;
   return '…' + str.slice(-43);
@@ -115,5 +144,7 @@ function truncatePath(str) {
 Object.assign(hw, {
   shortenFolderLabel,
   renderVersionRuler,
+  renderVersionRulerHeader,
+  renderVersionRulerGrid,
   truncatePath,
 });

@@ -163,9 +163,17 @@ export function bootstrap() {
 
   window.addEventListener('resize', () => {
     if (!hw.state.parsed) return;
-    if (hw.state.catalog) hw.scheduleViewportSync();
+    if (hw.state.catalog) hw.scheduleViewportSync({ invalidateSlices: true });
     else hw.scheduleRenderFromState();
   });
+
+  if (typeof ResizeObserver !== 'undefined') {
+    const graphResizeObserver = new ResizeObserver(() => {
+      if (!hw.state.parsed || !hw.state.catalog) return;
+      hw.scheduleViewportSync({ invalidateSlices: true });
+    });
+    graphResizeObserver.observe(hw.els.graphViewport);
+  }
 
   hw.initGraphViewportEvents();
 

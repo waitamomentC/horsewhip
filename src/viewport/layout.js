@@ -130,12 +130,19 @@ function syncFileRailScrollFromState() {
 }
 
 function applyGraphTransformImmediate() {
-  if (!hw.gMain) return;
-  hw.gMain.attr('transform', `translate(${-hw.state.panX}, ${-hw.state.scrollTop})`);
+  const m = hw.CONFIG.MARGIN;
+  const panX = hw.state.panX ?? 0;
+  const scrollTop = hw.state.scrollTop ?? 0;
+  if (hw.gRuler) {
+    hw.gRuler.attr('transform', `translate(${m.left - panX},${m.top})`);
+  }
+  if (hw.gScroll) {
+    hw.gScroll.attr('transform', `translate(${m.left - panX},${m.top - scrollTop})`);
+  }
 }
 
 function animateViewportTo(targetPanX, targetScrollTop, duration = 420) {
-  if (!hw.gMain || !hw.state.parsed) return Promise.resolve();
+  if (!hw.gScroll || !hw.state.parsed) return Promise.resolve();
   const gen = ++hw.state.viewportAnimGeneration;
   const bounds = hw.computePanBounds();
   const startPan = hw.state.panX ?? bounds.panMin;
@@ -168,7 +175,7 @@ function animateViewportTo(targetPanX, targetScrollTop, duration = 420) {
   hw.stopViewportAnimation();
 
   return new Promise((resolve) => {
-    d3.select(hw.gMain.node())
+    d3.select(hw.gScroll.node())
       .transition('hw-viewport-pan')
       .duration(duration)
       .ease(d3.easeCubicInOut)
@@ -270,7 +277,8 @@ function columnWindowCacheChanged(prev, next) {
 
 function stopViewportAnimation() {
   hw.state.viewportAnimGeneration += 1;
-  if (hw.gMain) d3.select(hw.gMain.node()).interrupt('hw-viewport-pan');
+  if (hw.gScroll) d3.select(hw.gScroll.node()).interrupt('hw-viewport-pan');
+  if (hw.gRuler) d3.select(hw.gRuler.node()).interrupt('hw-viewport-pan');
 }
 
 function markViewportInteracting() {

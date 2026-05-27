@@ -57,11 +57,12 @@ let viewportSyncQueued = false;
 let viewportInteractEndTimer = null;
 let svgRoot;
 let gMain;
+let gRuler;
 let gScroll;
 
 Object.assign(hw, {
   state, whipAudioContext, whipCrackBuffer, whipCrackLoadPromise, whipCrackUseSynth,
   suppressOutsideClick, nodeClickTimer,
   svgLayout, scrollSync, graphRenderCtx, viewportSyncQueued, viewportInteractEndTimer,
-  svgRoot, gMain, gScroll,
+  svgRoot, gMain, gRuler, gScroll,
 });

@@ -124,6 +124,7 @@
   var viewportInteractEndTimer = null;
   var svgRoot;
   var gMain;
+  var gRuler;
   var gScroll;
   Object.assign(hw, {
     state,
@@ -140,6 +141,7 @@
     viewportInteractEndTimer,
     svgRoot,
     gMain,
+    gRuler,
     gScroll
   });
 
@@ -2711,11 +2713,18 @@ git reset --hard ${hash}`;
     hw.scrollSync = false;
   }
   function applyGraphTransformImmediate() {
-    if (!hw.gMain) return;
-    hw.gMain.attr("transform", `translate(${-hw.state.panX}, ${-hw.state.scrollTop})`);
+    const m = hw.CONFIG.MARGIN;
+    const panX = hw.state.panX ?? 0;
+    const scrollTop = hw.state.scrollTop ?? 0;
+    if (hw.gRuler) {
+      hw.gRuler.attr("transform", `translate(${m.left - panX},${m.top})`);
+    }
+    if (hw.gScroll) {
+      hw.gScroll.attr("transform", `translate(${m.left - panX},${m.top - scrollTop})`);
+    }
   }
   function animateViewportTo(targetPanX, targetScrollTop, duration = 420) {
-    if (!hw.gMain || !hw.state.parsed) return Promise.resolve();
+    if (!hw.gScroll || !hw.state.parsed) return Promise.resolve();
     const gen = ++hw.state.viewportAnimGeneration;
     const bounds = hw.computePanBounds();
     const startPan = hw.state.panX ?? bounds.panMin;
@@ -2743,7 +2752,7 @@ git reset --hard ${hash}`;
     }
     hw.stopViewportAnimation();
     return new Promise((resolve) => {
-      d3.select(hw.gMain.node()).transition("hw-viewport-pan").duration(duration).ease(d3.easeCubicInOut).tween("hw-viewport", () => {
+      d3.select(hw.gScroll.node()).transition("hw-viewport-pan").duration(duration).ease(d3.easeCubicInOut).tween("hw-viewport", () => {
         const panI = d3.interpolateNumber(startPan, endPan);
         const scrollI = d3.interpolateNumber(startScroll, endScroll);
         return (t) => {
@@ -2827,7 +2836,8 @@ git reset --hard ${hash}`;
   }
   function stopViewportAnimation() {
     hw.state.viewportAnimGeneration += 1;
-    if (hw.gMain) d3.select(hw.gMain.node()).interrupt("hw-viewport-pan");
+    if (hw.gScroll) d3.select(hw.gScroll.node()).interrupt("hw-viewport-pan");
+    if (hw.gRuler) d3.select(hw.gRuler.node()).interrupt("hw-viewport-pan");
   }
   function markViewportInteracting() {
     if (!hw.state.viewportInteracting) {
@@ -3363,15 +3373,35 @@ git reset --hard ${hash}`;
       d3.select(this).transition().delay(120 + i * 22).duration(340).ease(d3.easeBackOut.overshoot(1.15)).attr("opacity", 1);
     });
   }
+  function graphViewportWidthPx() {
+    return Math.max(1, Math.round(hw.els.graphViewport?.clientWidth || 800));
+  }
+  function syncGraphSvgViewportSize() {
+    if (!hw.svgRoot || !hw.els.graphSvg) return false;
+    const w = hw.graphViewportWidthPx();
+    const curW = parseFloat(hw.svgRoot.attr("width")) || 0;
+    const h = parseFloat(hw.svgRoot.attr("height")) || 0;
+    if (!h || Math.abs(curW - w) < 0.5) return false;
+    hw.svgRoot.attr("width", w).attr("viewBox", `0 0 ${w} ${h}`);
+    const bg = hw.svgRoot.select(":scope > rect");
+    if (!bg.empty()) bg.attr("width", w);
+    hw.els.graphSvg.style.width = `${w}px`;
+    hw.updateVisibleColumnWindow();
+    hw.applyGraphTransformImmediate();
+    return true;
+  }
   function initSvg(contentHeight) {
-    const width = hw.els.graphViewport.clientWidth || 800;
+    const width = hw.graphViewportWidthPx();
     const height = contentHeight;
     d3.select(hw.els.graphSvg).selectAll("*").remove();
-    hw.svgRoot = d3.select(hw.els.graphSvg).attr("width", width).attr("height", height).attr("viewBox", `0 0 ${width} ${height}`);
+    hw.svgRoot = d3.select(hw.els.graphSvg).attr("width", width).attr("height", height).attr("viewBox", `0 0 ${width} ${height}`).attr("preserveAspectRatio", "xMinYMin meet");
     hw.gMain = hw.svgRoot.append("g").attr("class", "graph-main");
     hw.gScroll = hw.gMain.append("g").attr("class", "graph-scroll-layer");
+    hw.gRuler = hw.gMain.append("g").attr("class", "graph-ruler-layer");
     hw.installGraphDefs(hw.svgRoot.append("defs"));
     hw.svgRoot.insert("rect", ":first-child").attr("width", width).attr("height", height).attr("fill", "transparent");
+    hw.els.graphSvg.style.width = `${width}px`;
+    hw.els.graphSvg.style.height = `${height}px`;
     return { width, height };
   }
   function applyGraphTransform() {
@@ -3503,8 +3533,10 @@ git reset --hard ${hash}`;
     }
     hw.state.panX = hw.clampPan(hw.state.panX, bounds);
     hw.svgLayout = { innerH, panBounds: bounds, headX: hw.headXContent(catalog.head) };
-    const g = hw.gScroll.append("g").attr("transform", `translate(${m.left},${m.top})`);
-    hw.renderVersionRuler(g, catalog, innerH);
+    const gRuler2 = hw.gRuler.append("g").attr("class", "graph-ruler-inner");
+    hw.renderVersionRulerHeader(gRuler2, catalog);
+    const g = hw.gScroll.append("g").attr("class", "graph-content-inner");
+    hw.renderVersionRulerGrid(g, catalog, innerH);
     hw.graphRenderCtx = {
       catalog,
       yScale: hw.laneCenterY,
@@ -3512,6 +3544,7 @@ git reset --hard ${hash}`;
       busG: g.append("g").attr("class", "buses"),
       renderedLanes: /* @__PURE__ */ new Set()
     };
+    hw.applyGraphTransformImmediate();
   }
   function prepareFileRailAllRows(lanes) {
     const inner = hw.prepareFileRailShell(lanes);
@@ -3741,7 +3774,11 @@ git reset --hard ${hash}`;
     requestAnimationFrame(async () => {
       hw.viewportSyncQueued = false;
       if (!hw.renderIsAlive(gen)) return;
-      await hw.syncVisibleLanes(gen, options);
+      const sizeChanged = hw.syncGraphSvgViewportSize();
+      await hw.syncVisibleLanes(gen, {
+        ...options,
+        invalidateSlices: options.invalidateSlices || sizeChanged
+      });
     });
   }
   function scheduleRenderFromState(options = {}) {
@@ -3753,6 +3790,8 @@ git reset --hard ${hash}`;
   }
   Object.assign(hw, {
     runGraphEntrance,
+    graphViewportWidthPx,
+    syncGraphSvgViewportSize,
     initSvg,
     applyGraphTransform,
     yieldToNextFrame,
@@ -3783,7 +3822,7 @@ git reset --hard ${hash}`;
     if (label === "(root)") return label;
     return label.endsWith("/") ? label : `${label}/`;
   }
-  function renderVersionRuler(g, model, innerH) {
+  function renderVersionRulerHeader(g) {
     const rh = hw.CONFIG.RULER_HEIGHT;
     const baseline = rh - 8;
     const parsed = hw.state.parsed;
@@ -3792,8 +3831,8 @@ git reset --hard ${hash}`;
     const pulseCol = hw.pulseColumn(parsed);
     const extent = hw.rulerExtent(parsed);
     const extendX = hw.versionColumnX(extent);
-    const gridG = g.append("g").attr("class", "version-ruler__grid");
     const chromeG = g.append("g").attr("class", "version-ruler");
+    chromeG.append("rect").attr("class", "version-ruler__backdrop").attr("x", -8e3).attr("y", 0).attr("width", 16e3).attr("height", rh + 2).attr("fill", "var(--bg)");
     for (let v = 1; v <= extent; v += 1) {
       const vx = hw.versionColumnX(v);
       const uploadCommit = parsed ? hw.commitAtUploadColumn(parsed, v) : null;
@@ -3801,7 +3840,6 @@ git reset --hard ${hash}`;
       const isLit = !!uploadCommit && !isFuture;
       const isHead = v === headUploadIdx;
       const isBranchOnly = isLit && uploadCommit && !uploadCommit.isMainline;
-      gridG.append("line").attr("class", `version-ruler__vline${isFuture ? " version-ruler__vline--future" : ""}${isLit ? " version-ruler__vline--lit" : ""}`).attr("x1", vx).attr("x2", vx).attr("y1", baseline).attr("y2", innerH);
       chromeG.append("line").attr("class", [
         "version-ruler__tick",
         isLit ? "version-ruler__tick--lit" : "",
@@ -3835,6 +3873,24 @@ git reset --hard ${hash}`;
       hw.appendRulerRipples(chromeG, hw.versionColumnX(pulseV), baseline);
     }
   }
+  function renderVersionRulerGrid(g, model, innerH) {
+    const rh = hw.CONFIG.RULER_HEIGHT;
+    const parsed = hw.state.parsed;
+    const loadedMaxCol = hw.maxLoadedUploadColumn(parsed);
+    const extent = hw.rulerExtent(parsed);
+    const gridG = g.append("g").attr("class", "version-ruler__grid");
+    for (let v = 1; v <= extent; v += 1) {
+      const vx = hw.versionColumnX(v);
+      const uploadCommit = parsed ? hw.commitAtUploadColumn(parsed, v) : null;
+      const isFuture = v > loadedMaxCol;
+      const isLit = !!uploadCommit && !isFuture;
+      gridG.append("line").attr("class", `version-ruler__vline${isFuture ? " version-ruler__vline--future" : ""}${isLit ? " version-ruler__vline--lit" : ""}`).attr("x1", vx).attr("x2", vx).attr("y1", rh).attr("y2", innerH);
+    }
+  }
+  function renderVersionRuler(g, model, innerH) {
+    hw.renderVersionRulerHeader(g);
+    hw.renderVersionRulerGrid(g, model, innerH);
+  }
   function truncatePath(str) {
     if (str.length <= 44) return str;
     return "\u2026" + str.slice(-43);
@@ -3842,6 +3898,8 @@ git reset --hard ${hash}`;
   Object.assign(hw, {
     shortenFolderLabel,
     renderVersionRuler,
+    renderVersionRulerHeader,
+    renderVersionRulerGrid,
     truncatePath
   });
 
@@ -5329,9 +5387,16 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     });
     window.addEventListener("resize", () => {
       if (!hw.state.parsed) return;
-      if (hw.state.catalog) hw.scheduleViewportSync();
+      if (hw.state.catalog) hw.scheduleViewportSync({ invalidateSlices: true });
       else hw.scheduleRenderFromState();
     });
+    if (typeof ResizeObserver !== "undefined") {
+      const graphResizeObserver = new ResizeObserver(() => {
+        if (!hw.state.parsed || !hw.state.catalog) return;
+        hw.scheduleViewportSync({ invalidateSlices: true });
+      });
+      graphResizeObserver.observe(hw.els.graphViewport);
+    }
     hw.initGraphViewportEvents();
     document.addEventListener("click", (e) => {
       if (hw.suppressOutsideClick) {

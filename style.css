@@ -541,7 +541,8 @@ body:has(.hw-boundary:not([hidden])) .stage {
 }
 
 /* Pan/scroll: GPU layer + pause ripples so nodes don't stutter */
-.graph-viewport--panning .graph-main {
+.graph-viewport--panning .graph-scroll-layer,
+.graph-viewport--panning .graph-ruler-layer {
   will-change: transform;
 }
 
@@ -601,6 +602,14 @@ body:has(.hw-boundary:not([hidden])) .stage {
   outline: none;
 }
 
+.graph-ruler-layer {
+  pointer-events: none;
+}
+
+.version-ruler__backdrop {
+  pointer-events: none;
+}
+
 /* 去掉点阵底纹，避免与 C 列对齐时像满屏竖线 */
 .graph-viewport::before {
   display: none;
@@ -615,7 +624,7 @@ body:has(.hw-boundary:not([hidden])) .stage {
 
 .graph-svg {
   display: block;
-  width: 100%;
+  /* 宽高由 JS 与 viewBox 同步，勿用 width:100% 以免缩放后 C 列与泳道错位 */
 }
 
 .graph-empty {

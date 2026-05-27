@@ -34,8 +34,29 @@ function runGraphEntrance() {
   });
 }
 
+function graphViewportWidthPx() {
+  return Math.max(1, Math.round(hw.els.graphViewport?.clientWidth || 800));
+}
+
+/** 窗口变宽/变窄时同步 SVG viewBox，避免 width:100% 单独缩放导致 C 列与节点错位 */
+function syncGraphSvgViewportSize() {
+  if (!hw.svgRoot || !hw.els.graphSvg) return false;
+  const w = hw.graphViewportWidthPx();
+  const curW = parseFloat(hw.svgRoot.attr('width')) || 0;
+  const h = parseFloat(hw.svgRoot.attr('height')) || 0;
+  if (!h || Math.abs(curW - w) < 0.5) return false;
+
+  hw.svgRoot.attr('width', w).attr('viewBox', `0 0 ${w} ${h}`);
+  const bg = hw.svgRoot.select(':scope > rect');
+  if (!bg.empty()) bg.attr('width', w);
+  hw.els.graphSvg.style.width = `${w}px`;
+  hw.updateVisibleColumnWindow();
+  hw.applyGraphTransformImmediate();
+  return true;
+}
+
 function initSvg(contentHeight) {
-  const width = hw.els.graphViewport.clientWidth || 800;
+  const width = hw.graphViewportWidthPx();
   const height = contentHeight;
 
   d3.select(hw.els.graphSvg).selectAll('*').remove();
@@ -43,10 +64,12 @@ function initSvg(contentHeight) {
   hw.svgRoot = d3.select(hw.els.graphSvg)
     .attr('width', width)
     .attr('height', height)
-    .attr('viewBox', `0 0 ${width} ${height}`);
+    .attr('viewBox', `0 0 ${width} ${height}`)
+    .attr('preserveAspectRatio', 'xMinYMin meet');
 
   hw.gMain = hw.svgRoot.append('g').attr('class', 'graph-main');
   hw.gScroll = hw.gMain.append('g').attr('class', 'graph-scroll-layer');
+  hw.gRuler = hw.gMain.append('g').attr('class', 'graph-ruler-layer');
 
   hw.installGraphDefs(hw.svgRoot.append('defs'));
 
@@ -54,6 +77,9 @@ function initSvg(contentHeight) {
     .attr('width', width)
     .attr('height', height)
     .attr('fill', 'transparent');
+
+  hw.els.graphSvg.style.width = `${width}px`;
+  hw.els.graphSvg.style.height = `${height}px`;
 
   return { width, height };
 }
@@ -195,8 +221,10 @@ function prepareGraphShell(catalog) {
   }
   hw.state.panX = hw.clampPan(hw.state.panX, bounds);
   hw.svgLayout = { innerH, panBounds: bounds, headX: hw.headXContent(catalog.head) };
-  const g = hw.gScroll.append('g').attr('transform', `translate(${m.left},${m.top})`);
-  hw.renderVersionRuler(g, catalog, innerH);
+  const gRuler = hw.gRuler.append('g').attr('class', 'graph-ruler-inner');
+  hw.renderVersionRulerHeader(gRuler, catalog);
+  const g = hw.gScroll.append('g').attr('class', 'graph-content-inner');
+  hw.renderVersionRulerGrid(g, catalog, innerH);
   hw.graphRenderCtx = {
     catalog,
     yScale: hw.laneCenterY,
@@ -204,6 +232,7 @@ function prepareGraphShell(catalog) {
     busG: g.append('g').attr('class', 'buses'),
     renderedLanes: new Set(),
   };
+  hw.applyGraphTransformImmediate();
 }
 
 function prepareFileRailAllRows(lanes) {
@@ -489,7 +518,11 @@ function scheduleViewportSync(options = {}) {
   requestAnimationFrame(async () => {
     hw.viewportSyncQueued = false;
     if (!hw.renderIsAlive(gen)) return;
-    await hw.syncVisibleLanes(gen, options);
+    const sizeChanged = hw.syncGraphSvgViewportSize();
+    await hw.syncVisibleLanes(gen, {
+      ...options,
+      invalidateSlices: options.invalidateSlices || sizeChanged,
+    });
   });
 }
 
@@ -503,6 +536,8 @@ function scheduleRenderFromState(options = {}) {
 
 Object.assign(hw, {
   runGraphEntrance,
+  graphViewportWidthPx,
+  syncGraphSvgViewportSize,
   initSvg,
   applyGraphTransform,
   yieldToNextFrame,
