@@ -223,13 +223,13 @@ function ensureWhipFloatEl() {
     el.id = 'hw-whip-float';
     el.className = 'hw-whip-float';
     el.hidden = true;
-    el.innerHTML = `<button type="button" class="hw-whip-float__btn hw-whip-btn" aria-label="复制约束" title="复制约束"></button>`;
+    el.innerHTML = `<button type="button" class="hw-whip-float__btn hw-whip-btn" aria-label="挥鞭上锁" title="挥鞭上锁"></button>`;
     el.querySelector('.hw-whip-float__btn').addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
       hw.suppressOutsideClick = true;
       if (whipFloatNodesForCopy?.length) {
-        hw.crackWhipOnSelection(whipFloatNodesForCopy, el);
+        hw.lockBoundaryFromSelection(whipFloatNodesForCopy, el);
       }
     });
     document.body.appendChild(el);

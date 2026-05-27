@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Git pre-commit guard — blocks commit when working-tree changes exceed
- * .git/horsewhip/allowlist.json (written by Horsewhip when you select nodes).
+ * .git/horsewhip/allowlist.json (written when you whip-lock nodes on the timeline).
  * Keep path rules in sync with extension/src/boundaryGuard.ts
  */
 import { execFileSync } from 'node:child_process';
@@ -44,14 +44,61 @@ function pathIsUnderAllowlist(file, allowlist) {
   return false;
 }
 
-function readAllowlist() {
+function normalizeBranch(b) {
+  const s = String(b || '').trim();
+  if (!s) return '';
+  const lower = s.toLowerCase();
+  if (lower === 'main' || lower === 'master') return lower;
+  return s;
+}
+
+function readAllowlistRecord() {
   const file = path.join(ROOT, '.git', 'horsewhip', 'allowlist.json');
   try {
     const data = JSON.parse(fs.readFileSync(file, 'utf8'));
-    return Array.isArray(data.allowed) ? data.allowed : [];
+    const allowed = Array.isArray(data.allowed) ? data.allowed : [];
+    const armed = Boolean(data.locked) && allowed.length > 0;
+    return {
+      armed,
+      allowed,
+      targets: Array.isArray(data.targets) ? data.targets : [],
+    };
   } catch {
-    return [];
+    return null;
   }
+}
+
+function gitCurrentBranch() {
+  try {
+    return execFileSync('git', ['branch', '--show-current'], { cwd: ROOT, encoding: 'utf8' }).trim();
+  } catch {
+    return '';
+  }
+}
+
+function evaluateBranchLock(targets) {
+  if (!targets.length) return null;
+  const branches = [...new Set(targets.map((t) => normalizeBranch(t.branch)).filter(Boolean))];
+  if (branches.length > 1) {
+    return `瞄准了多条分支（${branches.join('、')}），请只瞄准同一分支。`;
+  }
+  const currentRaw = gitCurrentBranch();
+  if (!currentRaw) {
+    return '当前处于 detached HEAD，请先 git switch 到瞄准分支。';
+  }
+  const expected = branches[0] || '';
+  const current = normalizeBranch(currentRaw);
+  if (!expected) {
+    if (current !== 'main' && current !== 'master') {
+      return `瞄准为主泳道，但当前在 ⎇ ${currentRaw}。`;
+    }
+    return null;
+  }
+  if (current === expected) return null;
+  if ((expected === 'main' || expected === 'master') && (current === 'main' || current === 'master')) {
+    return null;
+  }
+  return `当前在 ⎇ ${currentRaw}，瞄准为 ⎇ ${expected}。请先 git switch ${expected}。`;
 }
 
 function gitLines(args) {
@@ -113,11 +160,31 @@ function writeCommitBlockedMarker(allowed, overreach) {
 }
 
 function main() {
-  const allowed = readAllowlist();
-  if (!allowed.length) {
+  const rec = readAllowlistRecord();
+  const actualEarly = changedFiles();
+  if (!rec || !rec.armed) {
+    if (actualEarly.length > 0) {
+      console.error('');
+      console.error('【horsewhip · commit 已拦截】');
+      console.error('尚未挥鞭圈定跑马范围：工作区存在改动，禁止任何修改与提交。');
+      console.error(`涉及路径：${actualEarly.join(', ')}`);
+      console.error('');
+      console.error('请先在马鞭泳道点选节点并挥鞭圈定；或 git checkout HEAD -- <路径> 还原改动。');
+      console.error('');
+      process.exit(1);
+    }
     clearCommitBlockedMarker();
     process.exit(0);
   }
+  const branchErr = evaluateBranchLock(rec.targets);
+  if (branchErr) {
+    console.error('');
+    console.error('【horsewhip · commit 已拦截】');
+    console.error(branchErr);
+    console.error('');
+    process.exit(1);
+  }
+  const allowed = rec.allowed; // armed && non-empty
   const actual = changedFiles();
   const overreach = actual.filter((f) => !pathIsUnderAllowlist(f, allowed));
   if (!overreach.length) {
@@ -129,8 +196,8 @@ function main() {
   const overText = overreach.join(', ');
   console.error('');
   console.error('【horsewhip · commit 已拦截】');
-  console.error(`允许修改：${allowText}`);
-  console.error(`越界改动：${overText}`);
+  console.error(`挥鞭圈定（仅此可改）：${allowText}`);
+  console.error(`圈外改动（禁止）：${overText}`);
   console.error('');
   console.error('越界文件仍留在工作区 — 请先 git checkout HEAD -- <越界路径> 复原，再在边界内重想方案。');
   console.error('horsewhip：检查越界 → 还原越界文件 / 插入纠正到 Chat；勿保留越界改动后误提交。');

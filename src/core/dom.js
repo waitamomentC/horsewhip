@@ -51,6 +51,7 @@ const els = {
   modalClose: $('#modal-close'),
   tooltip: $('#tooltip'),
   boundaryBar: $('#hw-boundary'),
+  boundaryTitle: $('#hw-boundary-title'),
   boundaryCount: $('#hw-boundary-count'),
   boundaryFiles: $('#hw-boundary-files'),
   boundaryPreview: $('#hw-boundary-preview'),

@@ -459,13 +459,13 @@ export function buildTimelineHtml(
   </div>
   <div class="hw-boundary" id="hw-boundary" hidden>
     <div class="hw-boundary__info">
-      <strong class="hw-boundary__title">本次边界</strong>
+      <strong class="hw-boundary__title" id="hw-boundary-title">本次边界</strong>
       <span class="hw-boundary__count" id="hw-boundary-count">0 个文件</span>
       <span class="hw-boundary__files" id="hw-boundary-files"></span>
     </div>
     <div class="hw-boundary__actions">
       <button type="button" class="plugin-bar__btn" id="btn-boundary-clear">清空</button>
-      <button type="button" class="plugin-bar__btn hw-whip-btn" id="btn-boundary-copy" title="复制约束" aria-label="复制约束"></button>
+      <button type="button" class="plugin-bar__btn hw-whip-btn" id="btn-boundary-copy" title="挥鞭上锁" aria-label="挥鞭上锁"></button>
       <button type="button" class="plugin-bar__btn plugin-bar__btn--primary" id="btn-boundary-chat">插入 Chat</button>
     </div>
     <pre class="hw-boundary__preview" id="hw-boundary-preview" hidden></pre>
@@ -500,7 +500,7 @@ export function buildTimelineHtml(
         <svg id="graph-svg" class="graph-svg" role="img" aria-label="Version timeline"></svg>
       </div>
       <div class="graph-empty" id="graph-empty">
-        <p class="graph-empty__title">划定边界，再让 AI 动手</p>
+        <p class="graph-empty__title">点选节点，挥鞭上锁，再让 AI 动手</p>
         <p class="graph-empty__desc">正在同步泳道与分支…</p>
       </div>
       <div class="graph-hint" id="graph-hint" hidden>

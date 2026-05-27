@@ -17,9 +17,14 @@
       if (!vscode) return;
       vscode.postMessage({ type: 'revealFolder', folderPath: folderPath || '' });
     },
-    setBoundaryAllowlist(files) {
+    setBoundaryAllowlist(files, locked = false, targets = []) {
       if (!vscode) return;
-      vscode.postMessage({ type: 'setBoundaryAllowlist', files: Array.isArray(files) ? files : [] });
+      vscode.postMessage({
+        type: 'setBoundaryAllowlist',
+        files: Array.isArray(files) ? files : [],
+        locked: Boolean(locked),
+        targets: Array.isArray(targets) ? targets : [],
+      });
     },
     insertBoundaryToChat(text) {
       if (!vscode || !text) return;

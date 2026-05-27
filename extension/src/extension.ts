@@ -1,11 +1,59 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
+import { syncHorsewhipBoundaryNotes } from './boundaryNotes';
+import { setBoundaryAllowlistWorkspaceRoot } from './boundaryAllowlist';
+import { refreshEditorsForBoundary } from './boundaryEditGuard';
 import { registerBoundaryGuard } from './boundaryGuardHost';
+import {
+  installHorsewhipPreCommitHook,
+  isHorsewhipPreCommitHookInstalled,
+} from './boundaryGitHook';
 import { HorsewhipLauncherProvider } from './horsewhipLauncher';
 import { HorsewhipPanel } from './horsewhipPanel';
 import { ensureWorkspaceReady } from './workspaceGate';
 
+function gitWorkspaceRoots(): string[] {
+  return (vscode.workspace.workspaceFolders ?? [])
+    .map((f) => f.uri.fsPath)
+    .filter((root) => fs.existsSync(path.join(root, '.git', 'HEAD')));
+}
+
+async function bootstrapGuardForWorkspace(
+  context: vscode.ExtensionContext,
+  workspaceRoot: string,
+): Promise<void> {
+  setBoundaryAllowlistWorkspaceRoot(workspaceRoot);
+  await syncHorsewhipBoundaryNotes(workspaceRoot);
+  const cfg = vscode.workspace.getConfiguration('horsewhip.guard');
+  if (cfg.get<boolean>('installHookOnOpen', true)) {
+    try {
+      const ok = await isHorsewhipPreCommitHookInstalled(workspaceRoot);
+      if (!ok) await installHorsewhipPreCommitHook(context.extensionUri, workspaceRoot);
+    } catch {
+      /* non-fatal */
+    }
+  }
+  if (cfg.get<string>('blockEdit', 'lock') !== 'off') {
+    await refreshEditorsForBoundary(workspaceRoot);
+  }
+}
+
 export function activate(context: vscode.ExtensionContext): void {
   registerBoundaryGuard(context);
+
+  for (const root of gitWorkspaceRoots()) {
+    void bootstrapGuardForWorkspace(context, root);
+  }
+
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeWorkspaceFolders(() => {
+      for (const root of gitWorkspaceRoots()) {
+        void bootstrapGuardForWorkspace(context, root);
+      }
+    }),
+  );
+
   const launcher = new HorsewhipLauncherProvider(context.extensionUri, context.globalStorageUri);
 
   context.subscriptions.push(

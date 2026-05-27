@@ -138,10 +138,29 @@ function nodeCanSelect(node) {
   return hw.nodeBoundaryPaths(node).length > 0;
 }
 
-function rebuildBoundaryFromNodes() {
-  hw.state.boundaryFiles.clear();
+function branchNameFromNode(node) {
+  if (node?.branchName) return String(node.branchName);
+  const seg = node?.lane?.branchSegment;
+  if (seg?.name) return String(seg.name);
+  if (node?.lane?.isBranchLane && node.lane?.label) {
+    return String(node.lane.label).replace(/^⎇\s*/, '').trim();
+  }
+  return '';
+}
+
+function lockTargetsFromNodes(nodes) {
+  return nodes.map((node) => ({
+    nodeId: node.id,
+    commit: node.hash || '',
+    branch: hw.branchNameFromNode(node),
+    lanePath: node.lanePath || '',
+    files: hw.pathsFromNodeIds(new Set([node.id])),
+  }));
+}
+
+function pathsFromNodeIds(nodeIds) {
   const paths = [];
-  hw.state.selectedNodeIds.forEach((id) => {
+  nodeIds.forEach((id) => {
     const node = hw.state.nodeIndex[id];
     if (!node) return;
     paths.push(...nodeBoundaryPaths(node));
@@ -151,17 +170,36 @@ function rebuildBoundaryFromNodes() {
   const prunedFiles = files.filter(
     (f) => !folders.some((dir) => hw.fileMatchesLane(f, hw.folderLaneForSelection(dir))),
   );
-  [...folders, ...prunedFiles].forEach((p) => hw.state.boundaryFiles.add(p));
+  return [...folders, ...prunedFiles];
+}
+
+function rebuildBoundaryFromNodes() {
+  hw.state.boundaryFiles.clear();
+  const sourceIds = hw.state.lockedNodeIds.size ? hw.state.lockedNodeIds : hw.state.selectedNodeIds;
+  pathsFromNodeIds(sourceIds).forEach((p) => hw.state.boundaryFiles.add(p));
+}
+
+function isBoundaryLocked() {
+  return hw.state.lockedNodeIds.size > 0;
+}
+
+function pushBoundaryToPlugin() {
+  if (!hw.isPluginHost() || !window.HorsewhipPluginBridge?.setBoundaryAllowlist) return;
+  const locked = hw.isBoundaryLocked();
+  const files = locked ? hw.getBoundaryFilesList() : [];
+  const targets = locked ? hw.state.lockTargets : [];
+  window.HorsewhipPluginBridge.setBoundaryAllowlist(files, locked, targets);
 }
 
 function syncBoundaryBar() {
-  const nodeCount = hw.state.selectedNodeIds.size;
+  const selectedCount = hw.state.selectedNodeIds.size;
+  const lockedCount = hw.state.lockedNodeIds.size;
+  const locked = hw.isBoundaryLocked();
+  hw.rebuildBoundaryFromNodes();
   const files = hw.getBoundaryFilesList();
-  const hasSelection = nodeCount > 0;
+  const showBar = selectedCount > 0 || locked;
 
-  if (hw.isPluginHost() && window.HorsewhipPluginBridge?.setBoundaryAllowlist) {
-    window.HorsewhipPluginBridge.setBoundaryAllowlist(hasSelection ? files : []);
-  }
+  hw.pushBoundaryToPlugin();
 
   if (!hw.BOUNDARY_BAR_ENABLED) {
     if (hw.isPluginHost() && hw.state.catalog?.lanes?.length) {
@@ -171,21 +209,41 @@ function syncBoundaryBar() {
     return;
   }
 
-  if (hw.els.boundaryBar) hw.els.boundaryBar.hidden = true;
-
-  if (hw.els.boundaryBar) hw.els.boundaryBar.hidden = !hasSelection;
+  if (hw.els.boundaryBar) hw.els.boundaryBar.hidden = !showBar;
+  if (hw.els.boundaryTitle) {
+    hw.els.boundaryTitle.textContent = locked ? '跑马范围（仅此可改）' : '点选范围';
+  }
   if (hw.els.boundaryCount) {
-    hw.els.boundaryCount.textContent = nodeCount === 1 ? '1 个节点' : `${nodeCount} 个节点`;
+    if (locked) {
+      const branchHint = hw.state.lockTargets.length
+        ? [...new Set(hw.state.lockTargets.map((t) => t.branch).filter(Boolean))]
+            .map((b) => `⎇ ${b}`)
+            .join(' · ') || '主泳道'
+        : '';
+      const aimLabel =
+        lockedCount === 1
+          ? '已圈定 1 处可改'
+          : `已圈定 ${lockedCount} 处可改`;
+      hw.els.boundaryCount.textContent = branchHint ? `${aimLabel} · ${branchHint}` : aimLabel;
+    } else {
+      hw.els.boundaryCount.textContent =
+        selectedCount === 1
+          ? '已选 1 个节点 · 挥鞭圈定'
+          : `已选 ${selectedCount} 个节点 · 挥鞭圈定`;
+    }
   }
   if (hw.els.boundaryFiles) {
-    hw.els.boundaryFiles.textContent = hasSelection ? files.map(hw.boundaryPathLabel).join(' · ') : '';
-    hw.els.boundaryFiles.title = hasSelection ? files.map(hw.boundaryPathLabel).join('\n') : '';
+    hw.els.boundaryFiles.textContent = files.length ? files.map(hw.boundaryPathLabel).join(' · ') : '';
+    hw.els.boundaryFiles.title = files.length ? files.map(hw.boundaryPathLabel).join('\n') : '';
   }
   if (hw.els.boundaryPreview) {
-    hw.els.boundaryPreview.textContent = hasSelection ? hw.buildBoundaryPrompt() : '';
+    hw.els.boundaryPreview.textContent = '';
   }
-  if (hw.els.btnBoundaryCopy) hw.els.btnBoundaryCopy.disabled = !hasSelection;
-  if (hw.els.btnBoundaryChat) hw.els.btnBoundaryChat.disabled = !hasSelection;
+  if (hw.els.btnBoundaryCopy) hw.els.btnBoundaryCopy.disabled = !selectedCount;
+  if (hw.els.btnBoundaryChat) {
+    hw.els.btnBoundaryChat.disabled = !files.length;
+    hw.els.btnBoundaryChat.hidden = hw.isPluginHost();
+  }
 
   if (hw.isPluginHost() && hw.state.catalog?.lanes?.length) {
     hw.updatePluginBar(hw.state.catalog.lanes.length);
@@ -195,28 +253,42 @@ function syncBoundaryBar() {
 
 function syncFileRailBoundaryHighlight() {
   if (!hw.els.fileRailInner) return;
-  const items = hw.getBoundaryFilesList();
-  const folders = items.filter(hw.isFolderBoundaryPath);
-  const files = items.filter((p) => !hw.isFolderBoundaryPath(p));
-  hw.els.fileRailInner.querySelectorAll('.file-rail__item').forEach((row) => {
-    row.classList.remove('file-rail__item--boundary');
+  const lockedItems = hw.isBoundaryLocked() ? hw.getBoundaryFilesList() : [];
+  const previewItems = hw.isBoundaryLocked()
+    ? pathsFromNodeIds(hw.state.selectedNodeIds)
+    : hw.getBoundaryFilesList();
+  const lockedFolders = lockedItems.filter(hw.isFolderBoundaryPath);
+  const lockedFiles = lockedItems.filter((p) => !hw.isFolderBoundaryPath(p));
+  const previewFolders = previewItems.filter(hw.isFolderBoundaryPath);
+  const previewFiles = previewItems.filter((p) => !hw.isFolderBoundaryPath(p));
+
+  const rowMatches = (row, folders, files) => {
     const folderPath = row.dataset.folderPath;
     const filePath = row.dataset.filePath;
-    if (folderPath && folders.includes(folderPath)) {
-      row.classList.add('file-rail__item--boundary');
+    if (folderPath && folders.includes(folderPath)) return true;
+    if (filePath && files.includes(filePath)) {
+      return !folders.some((dir) => hw.fileMatchesLane(filePath, hw.folderLaneForSelection(dir)));
+    }
+    return false;
+  };
+
+  hw.els.fileRailInner.querySelectorAll('.file-rail__item').forEach((row) => {
+    row.classList.remove('file-rail__item--boundary', 'file-rail__item--locked');
+    if (rowMatches(row, lockedFolders, lockedFiles)) {
+      row.classList.add('file-rail__item--locked');
       return;
     }
-    if (filePath && files.includes(filePath)) {
-      if (!folders.some((dir) => hw.fileMatchesLane(filePath, hw.folderLaneForSelection(dir)))) {
-        row.classList.add('file-rail__item--boundary');
-      }
+    if (!hw.isBoundaryLocked() && rowMatches(row, previewFolders, previewFiles)) {
+      row.classList.add('file-rail__item--boundary');
     }
   });
 }
 
 function clearNodeSelection() {
-  if (hw.state.selectedNodeIds.size === 0) return;
+  if (hw.state.selectedNodeIds.size === 0 && hw.state.lockedNodeIds.size === 0) return;
   hw.state.selectedNodeIds.clear();
+  hw.state.lockedNodeIds.clear();
+  hw.state.lockTargets = [];
   hw.state.boundaryFiles.clear();
   hw.state.lastSelectedNodeId = null;
   hw.state.pulseNodeId = null;
@@ -412,19 +484,37 @@ function nodeCanWhip(node) {
   return Boolean(files?.length && files[0]);
 }
 
-function crackWhipOnSelection(nodes, btnEl) {
+function lockBoundaryFromSelection(nodes, btnEl) {
   if (!nodes?.length) return;
   const crackTarget = btnEl?.closest?.('.hw-whip-float') || btnEl;
   crackTarget?.classList.add('hw-whip-btn--crack', 'hw-whip-float--crack');
   hw.playWhipCrackSound();
-  const text = nodes.length === 1 ? hw.constraintForNode(nodes[0]) : hw.buildBoundaryPrompt();
-  hw.copyText(text);
-  hw.showCopyToast(
+
+  hw.state.lockedNodeIds.clear();
+  nodes.forEach((node) => {
+    if (node?.id) hw.state.lockedNodeIds.add(node.id);
+  });
+  hw.state.lockTargets = hw.lockTargetsFromNodes(nodes);
+
+  hw.rebuildBoundaryFromNodes();
+  hw.pushBoundaryToPlugin();
+  hw.syncBoundaryBar();
+  hw.updateSelectionVisuals();
+
+  const fileCount = hw.getBoundaryFilesList().length;
+  const branches = [...new Set(hw.state.lockTargets.map((t) => t.branch).filter(Boolean))];
+  const branchText = branches.length ? ` · ${branches.map((b) => `⎇ ${b}`).join(' ')}` : ' · 主泳道';
+  const msg =
     nodes.length === 1
-      ? '约束已复制 · 粘贴到 Chat 即可'
-      : `${nodes.length} 个节点约束已复制 · 粘贴到 Chat 即可`,
-  );
+      ? `已圈定跑马范围：仅此 ${fileCount} 条路径可改${branchText}`
+      : `已圈定跑马范围：仅此 ${fileCount} 条路径可改${branchText}`;
+  hw.showCopyToast(msg);
   setTimeout(() => crackTarget?.classList.remove('hw-whip-btn--crack', 'hw-whip-float--crack'), 520);
+}
+
+/** @deprecated alias — whip now locks boundary instead of copying. */
+function crackWhipOnSelection(nodes, btnEl) {
+  hw.lockBoundaryFromSelection(nodes, btnEl);
 }
 
 function selectedWhipNodes() {
@@ -442,17 +532,51 @@ function whipHostNode() {
   return nodes.length ? nodes[nodes.length - 1] : null;
 }
 
+function syncNodeLockRings() {
+  d3.selectAll('.node-lock-aim').remove();
+  d3.selectAll('.node-group').each(function () {
+    const d = d3.select(this).datum();
+    if (!d?.id || !hw.state.lockedNodeIds.has(d.id)) return;
+    const lane = d.lane;
+    const color = hw.laneIconColor(lane);
+    const g = d3.select(this);
+    const rOuter = hw.ICON_SIZE + 7.2;
+    const aim = g
+      .insert('g', '.node-hit')
+      .attr('class', 'node-lock-aim')
+      .style('pointer-events', 'none');
+    aim
+      .append('circle')
+      .attr('class', 'node-lock-ring node-lock-ring--outer')
+      .attr('r', rOuter)
+      .attr('fill', 'none')
+      .attr('stroke', color)
+      .attr('stroke-width', 2)
+      .attr('opacity', 0.95);
+    aim
+      .append('circle')
+      .attr('class', 'node-lock-ring node-lock-ring--tick')
+      .attr('r', rOuter)
+      .attr('fill', 'none')
+      .attr('stroke', color)
+      .attr('stroke-width', 1.2)
+      .attr('stroke-dasharray', '2.5 5.5')
+      .attr('opacity', 0.55);
+  });
+}
+
 function updateSelectionVisuals() {
   const bundle = hw.state.selectedLink;
   d3.selectAll('.node-selection-ring').remove();
   d3.selectAll('.node-group').classed('node-group--selected', function () {
     const d = d3.select(this).datum();
-    return d?.id && hw.state.selectedNodeIds.has(d.id);
+    return d?.id && hw.state.selectedNodeIds.has(d.id) && !hw.state.lockedNodeIds.has(d.id);
   });
-  d3.selectAll('.node-group').classed('node-group--boundary', function () {
+  d3.selectAll('.node-group').classed('node-group--locked', function () {
     const d = d3.select(this).datum();
-    return d?.id && hw.state.selectedNodeIds.has(d.id);
+    return d?.id && hw.state.lockedNodeIds.has(d.id);
   });
+  hw.syncNodeLockRings();
   hw.setPulseNode(hw.state.pulseNodeId);
   d3.selectAll('.link-group').classed('link-group--selected', function () {
     const d = d3.select(this).select('.link-core').datum();
@@ -485,8 +609,15 @@ Object.assign(hw, {
   buildBoundaryPrompt,
   nodeBoundaryPaths,
   nodeCanSelect,
+  branchNameFromNode,
+  lockTargetsFromNodes,
+  pathsFromNodeIds,
   rebuildBoundaryFromNodes,
+  isBoundaryLocked,
+  pushBoundaryToPlugin,
+  lockBoundaryFromSelection,
   syncBoundaryBar,
+  syncNodeLockRings,
   syncFileRailBoundaryHighlight,
   clearNodeSelection,
   toggleSelectedNode,

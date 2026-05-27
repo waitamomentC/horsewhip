@@ -41,10 +41,12 @@ import {
   revertOverreachFiles,
   runBoundaryGuardCheck,
   setGuardWebviewNotifier,
+  syncBoundaryLockFromWebview,
 } from './boundaryGuardHost';
 import { isHorsewhipPreCommitHookInstalled, installHorsewhipPreCommitHook } from './boundaryGitHook';
 import { insertTextIntoChat } from './chatInsert';
 import { detectDevStartCommand } from './previewDev';
+import { gitBranchDisplay } from './gitRunner';
 
 type WebviewInbound =
   | { type: 'ready' }
@@ -70,7 +72,18 @@ type WebviewInbound =
   | { type: 'terminalResize'; cols: number; rows: number }
   | { type: 'gateOpenFolder' }
   | { type: 'gateGitInit' }
-  | { type: 'setBoundaryAllowlist'; files: string[] }
+  | {
+      type: 'setBoundaryAllowlist';
+      files: string[];
+      locked?: boolean;
+      targets?: Array<{
+        nodeId: string;
+        commit: string;
+        branch: string;
+        lanePath?: string;
+        files: string[];
+      }>;
+    }
   | { type: 'insertBoundaryToChat'; text: string }
   | { type: 'guardCheck' }
   | { type: 'guardInsertCorrection' }
@@ -719,11 +732,19 @@ export class HorsewhipTimeline {
     }
     if (msg.type === 'setBoundaryAllowlist') {
       const files = Array.isArray(msg.files) ? msg.files : [];
+      const locked = Boolean(msg.locked);
+      const targets = Array.isArray(msg.targets) ? msg.targets : [];
       void (async () => {
-        await setBoundaryAllowlist(files);
+        const branchInfo = this.workspaceRoot
+          ? await gitBranchDisplay(this.workspaceRoot)
+          : { label: '', detached: false };
+        await setBoundaryAllowlist(files, locked, targets, branchInfo.label);
         if (!this.workspaceRoot) return;
-        await this.ensureCommitHookInstalled();
-        await notifyBoundaryArmed(this.workspaceRoot, files);
+        await syncBoundaryLockFromWebview(this.workspaceRoot, files, locked);
+        if (locked && files.length) {
+          await this.ensureCommitHookInstalled();
+          await notifyBoundaryArmed(this.workspaceRoot, files);
+        }
         await runBoundaryGuardCheck(this.workspaceRoot, { silent: true });
       })();
       return;

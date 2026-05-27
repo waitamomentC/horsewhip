@@ -1,6 +1,6 @@
 {
   "name": "horsewhip",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "private": true,
   "description": "Horsewhip web assets & tooling (extension lives in extension/)",
   "scripts": {

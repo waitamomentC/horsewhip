@@ -1,10 +1,11 @@
 {
   "name": "horsewhip",
   "displayName": "Horsewhip",
-  "description": "AI boundary timeline for your repo — draw file lanes, whip-copy constraints into Chat, optional guard on commit.",
-  "version": "1.0.1",
+  "description": "File-lane timeline + dual whip guards: aim on graph, instant revert on illegal writes, boundary metadata in .git/horsewhip—expand fence in UI before editing outside.",
+  "version": "1.0.9",
   "publisher": "horsewhip",
   "license": "AGPL-3.0-or-later",
+  "icon": "media/horsewhip-icon-128.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/waitamomentC/horsewhip.git"
@@ -21,7 +22,8 @@
     "SCM Providers"
   ],
   "activationEvents": [
-    "onView:horsewhip.timelineView"
+    "onView:horsewhip.timelineView",
+    "workspaceContains:**/.git/HEAD"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -46,7 +48,7 @@
     "viewsWelcome": [
       {
         "view": "horsewhip.timelineView",
-        "contents": "Git file swimlane timeline. Open in editor.\n[Open Horsewhip workspace](command:horsewhip.open)"
+        "contents": "Git file swimlanes · dual whip guards (aim + write lock).\n[Open Horsewhip timeline](command:horsewhip.open)"
       }
     ],
     "commands": [
@@ -161,6 +163,36 @@
           "type": "boolean",
           "default": true,
           "description": "还原越界文件后，自动把「边界内重想」纠正文案插入 Chat。"
+        },
+        "horsewhip.guard.blockEdit": {
+          "type": "string",
+          "enum": [
+            "off",
+            "warn",
+            "lock"
+          ],
+          "default": "lock",
+          "enumDescriptions": [
+            "不拦编辑器（仅靠 commit；未圈定仍可手改，不推荐）",
+            "打开文件时提示",
+            "默认：未圈定=全库只读；已圈定=仅圈内可改"
+          ],
+          "description": "编辑期守门：未挥鞭圈定则禁止改任何文件；圈定后仅圈内路径可编辑。commit 守门始终生效。"
+        },
+        "horsewhip.guard.offerEditBlockToChat": {
+          "type": "boolean",
+          "default": true,
+          "description": "编辑被拦时，用户点「插入说明到 Chat」是否写入 AI 可读文案。"
+        },
+        "horsewhip.guard.revertOnWrite": {
+          "type": "boolean",
+          "default": true,
+          "description": "未圈定或圈外路径一旦被写入（含 Agent 直写盘），立即 git 还原，不等到 commit。"
+        },
+        "horsewhip.guard.notifyAiOnWrite": {
+          "type": "boolean",
+          "default": true,
+          "description": "写盘被拦并还原后，自动向 Chat 插入说明，要求 AI 询问用户是否圈定/授权。"
         }
       }
     },

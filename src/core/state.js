@@ -7,6 +7,9 @@ const state = {
   scrollTop: 0,
   expandedPaths: new Set(),
   selectedNodeIds: new Set(),
+  lockedNodeIds: new Set(),
+  /** @type {Array<{ nodeId: string, commit: string, branch: string, lanePath: string, files: string[] }>} */
+  lockTargets: [],
   selectedLink: null,
   pulseNodeId: null,
   nodeIndex: {},

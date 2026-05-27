@@ -73,6 +73,9 @@
     scrollTop: 0,
     expandedPaths: /* @__PURE__ */ new Set(),
     selectedNodeIds: /* @__PURE__ */ new Set(),
+    lockedNodeIds: /* @__PURE__ */ new Set(),
+    /** @type {Array<{ nodeId: string, commit: string, branch: string, lanePath: string, files: string[] }>} */
+    lockTargets: [],
     selectedLink: null,
     pulseNodeId: null,
     nodeIndex: {},
@@ -185,6 +188,7 @@
     modalClose: $("#modal-close"),
     tooltip: $("#tooltip"),
     boundaryBar: $("#hw-boundary"),
+    boundaryTitle: $("#hw-boundary-title"),
     boundaryCount: $("#hw-boundary-count"),
     boundaryFiles: $("#hw-boundary-files"),
     boundaryPreview: $("#hw-boundary-preview"),
@@ -2170,10 +2174,27 @@ ${lines}
     if (hw.isFolderBoundaryNode(node)) return true;
     return hw.nodeBoundaryPaths(node).length > 0;
   }
-  function rebuildBoundaryFromNodes() {
-    hw.state.boundaryFiles.clear();
+  function branchNameFromNode(node) {
+    if (node?.branchName) return String(node.branchName);
+    const seg = node?.lane?.branchSegment;
+    if (seg?.name) return String(seg.name);
+    if (node?.lane?.isBranchLane && node.lane?.label) {
+      return String(node.lane.label).replace(/^⎇\s*/, "").trim();
+    }
+    return "";
+  }
+  function lockTargetsFromNodes(nodes) {
+    return nodes.map((node) => ({
+      nodeId: node.id,
+      commit: node.hash || "",
+      branch: hw.branchNameFromNode(node),
+      lanePath: node.lanePath || "",
+      files: hw.pathsFromNodeIds(/* @__PURE__ */ new Set([node.id]))
+    }));
+  }
+  function pathsFromNodeIds(nodeIds) {
     const paths = [];
-    hw.state.selectedNodeIds.forEach((id) => {
+    nodeIds.forEach((id) => {
       const node = hw.state.nodeIndex[id];
       if (!node) return;
       paths.push(...nodeBoundaryPaths(node));
@@ -2183,15 +2204,31 @@ ${lines}
     const prunedFiles = files.filter(
       (f) => !folders.some((dir) => hw.fileMatchesLane(f, hw.folderLaneForSelection(dir)))
     );
-    [...folders, ...prunedFiles].forEach((p) => hw.state.boundaryFiles.add(p));
+    return [...folders, ...prunedFiles];
+  }
+  function rebuildBoundaryFromNodes() {
+    hw.state.boundaryFiles.clear();
+    const sourceIds = hw.state.lockedNodeIds.size ? hw.state.lockedNodeIds : hw.state.selectedNodeIds;
+    pathsFromNodeIds(sourceIds).forEach((p) => hw.state.boundaryFiles.add(p));
+  }
+  function isBoundaryLocked() {
+    return hw.state.lockedNodeIds.size > 0;
+  }
+  function pushBoundaryToPlugin() {
+    if (!hw.isPluginHost() || !window.HorsewhipPluginBridge?.setBoundaryAllowlist) return;
+    const locked = hw.isBoundaryLocked();
+    const files = locked ? hw.getBoundaryFilesList() : [];
+    const targets = locked ? hw.state.lockTargets : [];
+    window.HorsewhipPluginBridge.setBoundaryAllowlist(files, locked, targets);
   }
   function syncBoundaryBar() {
-    const nodeCount = hw.state.selectedNodeIds.size;
+    const selectedCount = hw.state.selectedNodeIds.size;
+    const lockedCount = hw.state.lockedNodeIds.size;
+    const locked = hw.isBoundaryLocked();
+    hw.rebuildBoundaryFromNodes();
     const files = hw.getBoundaryFilesList();
-    const hasSelection = nodeCount > 0;
-    if (hw.isPluginHost() && window.HorsewhipPluginBridge?.setBoundaryAllowlist) {
-      window.HorsewhipPluginBridge.setBoundaryAllowlist(hasSelection ? files : []);
-    }
+    const showBar = selectedCount > 0 || locked;
+    hw.pushBoundaryToPlugin();
     if (!hw.BOUNDARY_BAR_ENABLED) {
       if (hw.isPluginHost() && hw.state.catalog?.lanes?.length) {
         hw.updatePluginBar(hw.state.catalog.lanes.length);
@@ -2199,20 +2236,31 @@ ${lines}
       hw.syncFileRailBoundaryHighlight();
       return;
     }
-    if (hw.els.boundaryBar) hw.els.boundaryBar.hidden = true;
-    if (hw.els.boundaryBar) hw.els.boundaryBar.hidden = !hasSelection;
+    if (hw.els.boundaryBar) hw.els.boundaryBar.hidden = !showBar;
+    if (hw.els.boundaryTitle) {
+      hw.els.boundaryTitle.textContent = locked ? "\u8DD1\u9A6C\u8303\u56F4\uFF08\u4EC5\u6B64\u53EF\u6539\uFF09" : "\u70B9\u9009\u8303\u56F4";
+    }
     if (hw.els.boundaryCount) {
-      hw.els.boundaryCount.textContent = nodeCount === 1 ? "1 \u4E2A\u8282\u70B9" : `${nodeCount} \u4E2A\u8282\u70B9`;
+      if (locked) {
+        const branchHint = hw.state.lockTargets.length ? [...new Set(hw.state.lockTargets.map((t) => t.branch).filter(Boolean))].map((b) => `\u2387 ${b}`).join(" \xB7 ") || "\u4E3B\u6CF3\u9053" : "";
+        const aimLabel = lockedCount === 1 ? "\u5DF2\u5708\u5B9A 1 \u5904\u53EF\u6539" : `\u5DF2\u5708\u5B9A ${lockedCount} \u5904\u53EF\u6539`;
+        hw.els.boundaryCount.textContent = branchHint ? `${aimLabel} \xB7 ${branchHint}` : aimLabel;
+      } else {
+        hw.els.boundaryCount.textContent = selectedCount === 1 ? "\u5DF2\u9009 1 \u4E2A\u8282\u70B9 \xB7 \u6325\u97AD\u5708\u5B9A" : `\u5DF2\u9009 ${selectedCount} \u4E2A\u8282\u70B9 \xB7 \u6325\u97AD\u5708\u5B9A`;
+      }
     }
     if (hw.els.boundaryFiles) {
-      hw.els.boundaryFiles.textContent = hasSelection ? files.map(hw.boundaryPathLabel).join(" \xB7 ") : "";
-      hw.els.boundaryFiles.title = hasSelection ? files.map(hw.boundaryPathLabel).join("\n") : "";
+      hw.els.boundaryFiles.textContent = files.length ? files.map(hw.boundaryPathLabel).join(" \xB7 ") : "";
+      hw.els.boundaryFiles.title = files.length ? files.map(hw.boundaryPathLabel).join("\n") : "";
     }
     if (hw.els.boundaryPreview) {
-      hw.els.boundaryPreview.textContent = hasSelection ? hw.buildBoundaryPrompt() : "";
+      hw.els.boundaryPreview.textContent = "";
     }
-    if (hw.els.btnBoundaryCopy) hw.els.btnBoundaryCopy.disabled = !hasSelection;
-    if (hw.els.btnBoundaryChat) hw.els.btnBoundaryChat.disabled = !hasSelection;
+    if (hw.els.btnBoundaryCopy) hw.els.btnBoundaryCopy.disabled = !selectedCount;
+    if (hw.els.btnBoundaryChat) {
+      hw.els.btnBoundaryChat.disabled = !files.length;
+      hw.els.btnBoundaryChat.hidden = hw.isPluginHost();
+    }
     if (hw.isPluginHost() && hw.state.catalog?.lanes?.length) {
       hw.updatePluginBar(hw.state.catalog.lanes.length);
     }
@@ -2220,27 +2268,37 @@ ${lines}
   }
   function syncFileRailBoundaryHighlight() {
     if (!hw.els.fileRailInner) return;
-    const items = hw.getBoundaryFilesList();
-    const folders = items.filter(hw.isFolderBoundaryPath);
-    const files = items.filter((p) => !hw.isFolderBoundaryPath(p));
-    hw.els.fileRailInner.querySelectorAll(".file-rail__item").forEach((row) => {
-      row.classList.remove("file-rail__item--boundary");
+    const lockedItems = hw.isBoundaryLocked() ? hw.getBoundaryFilesList() : [];
+    const previewItems = hw.isBoundaryLocked() ? pathsFromNodeIds(hw.state.selectedNodeIds) : hw.getBoundaryFilesList();
+    const lockedFolders = lockedItems.filter(hw.isFolderBoundaryPath);
+    const lockedFiles = lockedItems.filter((p) => !hw.isFolderBoundaryPath(p));
+    const previewFolders = previewItems.filter(hw.isFolderBoundaryPath);
+    const previewFiles = previewItems.filter((p) => !hw.isFolderBoundaryPath(p));
+    const rowMatches = (row, folders, files) => {
       const folderPath = row.dataset.folderPath;
       const filePath = row.dataset.filePath;
-      if (folderPath && folders.includes(folderPath)) {
-        row.classList.add("file-rail__item--boundary");
+      if (folderPath && folders.includes(folderPath)) return true;
+      if (filePath && files.includes(filePath)) {
+        return !folders.some((dir) => hw.fileMatchesLane(filePath, hw.folderLaneForSelection(dir)));
+      }
+      return false;
+    };
+    hw.els.fileRailInner.querySelectorAll(".file-rail__item").forEach((row) => {
+      row.classList.remove("file-rail__item--boundary", "file-rail__item--locked");
+      if (rowMatches(row, lockedFolders, lockedFiles)) {
+        row.classList.add("file-rail__item--locked");
         return;
       }
-      if (filePath && files.includes(filePath)) {
-        if (!folders.some((dir) => hw.fileMatchesLane(filePath, hw.folderLaneForSelection(dir)))) {
-          row.classList.add("file-rail__item--boundary");
-        }
+      if (!hw.isBoundaryLocked() && rowMatches(row, previewFolders, previewFiles)) {
+        row.classList.add("file-rail__item--boundary");
       }
     });
   }
   function clearNodeSelection() {
-    if (hw.state.selectedNodeIds.size === 0) return;
+    if (hw.state.selectedNodeIds.size === 0 && hw.state.lockedNodeIds.size === 0) return;
     hw.state.selectedNodeIds.clear();
+    hw.state.lockedNodeIds.clear();
+    hw.state.lockTargets = [];
     hw.state.boundaryFiles.clear();
     hw.state.lastSelectedNodeId = null;
     hw.state.pulseNodeId = null;
@@ -2413,17 +2471,29 @@ git reset --hard ${hash}`;
     const files = node.files || [node.filePath];
     return Boolean(files?.length && files[0]);
   }
-  function crackWhipOnSelection(nodes, btnEl) {
+  function lockBoundaryFromSelection(nodes, btnEl) {
     if (!nodes?.length) return;
     const crackTarget = btnEl?.closest?.(".hw-whip-float") || btnEl;
     crackTarget?.classList.add("hw-whip-btn--crack", "hw-whip-float--crack");
     hw.playWhipCrackSound();
-    const text = nodes.length === 1 ? hw.constraintForNode(nodes[0]) : hw.buildBoundaryPrompt();
-    hw.copyText(text);
-    hw.showCopyToast(
-      nodes.length === 1 ? "\u7EA6\u675F\u5DF2\u590D\u5236 \xB7 \u7C98\u8D34\u5230 Chat \u5373\u53EF" : `${nodes.length} \u4E2A\u8282\u70B9\u7EA6\u675F\u5DF2\u590D\u5236 \xB7 \u7C98\u8D34\u5230 Chat \u5373\u53EF`
-    );
+    hw.state.lockedNodeIds.clear();
+    nodes.forEach((node) => {
+      if (node?.id) hw.state.lockedNodeIds.add(node.id);
+    });
+    hw.state.lockTargets = hw.lockTargetsFromNodes(nodes);
+    hw.rebuildBoundaryFromNodes();
+    hw.pushBoundaryToPlugin();
+    hw.syncBoundaryBar();
+    hw.updateSelectionVisuals();
+    const fileCount = hw.getBoundaryFilesList().length;
+    const branches = [...new Set(hw.state.lockTargets.map((t) => t.branch).filter(Boolean))];
+    const branchText = branches.length ? ` \xB7 ${branches.map((b) => `\u2387 ${b}`).join(" ")}` : " \xB7 \u4E3B\u6CF3\u9053";
+    const msg = nodes.length === 1 ? `\u5DF2\u5708\u5B9A\u8DD1\u9A6C\u8303\u56F4\uFF1A\u4EC5\u6B64 ${fileCount} \u6761\u8DEF\u5F84\u53EF\u6539${branchText}` : `\u5DF2\u5708\u5B9A\u8DD1\u9A6C\u8303\u56F4\uFF1A\u4EC5\u6B64 ${fileCount} \u6761\u8DEF\u5F84\u53EF\u6539${branchText}`;
+    hw.showCopyToast(msg);
     setTimeout(() => crackTarget?.classList.remove("hw-whip-btn--crack", "hw-whip-float--crack"), 520);
+  }
+  function crackWhipOnSelection(nodes, btnEl) {
+    hw.lockBoundaryFromSelection(nodes, btnEl);
   }
   function selectedWhipNodes() {
     return [...hw.state.selectedNodeIds].map((id) => hw.state.nodeIndex[id]).filter((node) => hw.nodeCanWhip(node));
@@ -2436,17 +2506,32 @@ git reset --hard ${hash}`;
     const nodes = hw.selectedWhipNodes();
     return nodes.length ? nodes[nodes.length - 1] : null;
   }
+  function syncNodeLockRings() {
+    d3.selectAll(".node-lock-aim").remove();
+    d3.selectAll(".node-group").each(function() {
+      const d = d3.select(this).datum();
+      if (!d?.id || !hw.state.lockedNodeIds.has(d.id)) return;
+      const lane = d.lane;
+      const color = hw.laneIconColor(lane);
+      const g = d3.select(this);
+      const rOuter = hw.ICON_SIZE + 7.2;
+      const aim = g.insert("g", ".node-hit").attr("class", "node-lock-aim").style("pointer-events", "none");
+      aim.append("circle").attr("class", "node-lock-ring node-lock-ring--outer").attr("r", rOuter).attr("fill", "none").attr("stroke", color).attr("stroke-width", 2).attr("opacity", 0.95);
+      aim.append("circle").attr("class", "node-lock-ring node-lock-ring--tick").attr("r", rOuter).attr("fill", "none").attr("stroke", color).attr("stroke-width", 1.2).attr("stroke-dasharray", "2.5 5.5").attr("opacity", 0.55);
+    });
+  }
   function updateSelectionVisuals() {
     const bundle = hw.state.selectedLink;
     d3.selectAll(".node-selection-ring").remove();
     d3.selectAll(".node-group").classed("node-group--selected", function() {
       const d = d3.select(this).datum();
-      return d?.id && hw.state.selectedNodeIds.has(d.id);
+      return d?.id && hw.state.selectedNodeIds.has(d.id) && !hw.state.lockedNodeIds.has(d.id);
     });
-    d3.selectAll(".node-group").classed("node-group--boundary", function() {
+    d3.selectAll(".node-group").classed("node-group--locked", function() {
       const d = d3.select(this).datum();
-      return d?.id && hw.state.selectedNodeIds.has(d.id);
+      return d?.id && hw.state.lockedNodeIds.has(d.id);
     });
+    hw.syncNodeLockRings();
     hw.setPulseNode(hw.state.pulseNodeId);
     d3.selectAll(".link-group").classed("link-group--selected", function() {
       const d = d3.select(this).select(".link-core").datum();
@@ -2477,8 +2562,15 @@ git reset --hard ${hash}`;
     buildBoundaryPrompt,
     nodeBoundaryPaths,
     nodeCanSelect,
+    branchNameFromNode,
+    lockTargetsFromNodes,
+    pathsFromNodeIds,
     rebuildBoundaryFromNodes,
+    isBoundaryLocked,
+    pushBoundaryToPlugin,
+    lockBoundaryFromSelection,
     syncBoundaryBar,
+    syncNodeLockRings,
     syncFileRailBoundaryHighlight,
     clearNodeSelection,
     toggleSelectedNode,
@@ -3422,7 +3514,14 @@ git reset --hard ${hash}`;
     const root = ctx.laneSlicesG.append("g").attr("class", "lane-slice").attr("data-lane-index", laneIndex);
     if (!lane.isHeader) {
       const fusePick = lane.isBranchLane && lane.branchSegment && hw.state.selectedBranchNames.has(lane.branchSegment.name);
-      root.append("line").attr("class", `lane-guide${lane.isBranchLane ? " lane-guide--branch" : ""}${fusePick ? " lane-guide--branch-fuse" : ""}`).attr("x1", -8).attr("x2", hw.futureExtentX(hw.state.parsed)).attr("y1", yScale(laneIndex)).attr("y2", yScale(laneIndex)).attr("stroke", lane.colorDim).attr("stroke-opacity", 0.42);
+      const branchCurrent = hw.isLaneCurrentGitBranch(lane);
+      let guideClass = `lane-guide${lane.isBranchLane ? " lane-guide--branch" : ""}`;
+      if (fusePick) guideClass += " lane-guide--branch-fuse";
+      if (branchCurrent) guideClass += " lane-guide--branch-current";
+      if (branchCurrent) {
+        root.append("line").attr("class", `${guideClass} lane-guide--branch-current-glow`).attr("x1", -8).attr("x2", hw.futureExtentX(hw.state.parsed)).attr("y1", yScale(laneIndex)).attr("y2", yScale(laneIndex)).attr("stroke", lane.color).attr("stroke-width", 4).attr("stroke-opacity", 0.14);
+      }
+      root.append("line").attr("class", guideClass).attr("x1", -8).attr("x2", hw.futureExtentX(hw.state.parsed)).attr("y1", yScale(laneIndex)).attr("y2", yScale(laneIndex)).attr("stroke", branchCurrent ? lane.color : lane.colorDim).attr("stroke-width", branchCurrent ? 1.1 : 1.5).attr("stroke-opacity", branchCurrent ? 0.92 : 0.42);
     }
     const linkG = root.append("g").attr("class", "lane-links");
     const nodeG = root.append("g").attr("class", "lane-nodes");
@@ -3743,6 +3842,7 @@ git reset --hard ${hash}`;
     const row = document.createElement("div");
     if (lane.isBranchLane) {
       row.className = "file-rail__item file-rail__item--branch";
+      if (lane.branchSegment?.name) row.dataset.branchName = lane.branchSegment.name;
       row.style.paddingLeft = `${hw.fileRailIndent(lane.depth)}px`;
       row.title = hw.fileRailTitle(lane);
       const chev2 = document.createElement("span");
@@ -3953,7 +4053,7 @@ ${fileScope}
     if (hw.els.btnFuseCopy) hw.els.btnFuseCopy.disabled = !show;
     if (hw.els.btnFuseChat) hw.els.btnFuseChat.disabled = !show;
     if (show && hw.isPluginHost() && window.HorsewhipPluginBridge?.setBoundaryAllowlist) {
-      window.HorsewhipPluginBridge.setBoundaryAllowlist(hw.fusionBoundaryFiles());
+      window.HorsewhipPluginBridge.setBoundaryAllowlist([], false);
     } else if (!show && hw.isPluginHost()) {
       hw.syncBoundaryBar();
     }
@@ -4032,16 +4132,24 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     hw.renderBranchRail();
     hw.syncBranchLaneHighlight();
   }
+  function isLaneCurrentGitBranch(lane) {
+    if (!lane?.isBranchLane || !lane.branchSegment) return false;
+    const cur = String(hw.state.currentGitBranch || "").trim();
+    if (!cur || hw.isMainBranchName(cur)) return false;
+    return lane.branchSegment.name === cur;
+  }
   function syncBranchLaneHighlight() {
     if (!hw.els.fileRailInner) return;
     const name = hw.state.highlightBranchName;
     const fuseSet = hw.state.selectedBranchNames;
+    const cur = String(hw.state.currentGitBranch || "").trim();
+    const showCurrent = cur && !hw.isMainBranchName(cur);
     hw.els.fileRailInner.querySelectorAll(".file-rail__item--branch").forEach((row) => {
-      const label = row.querySelector(".file-rail__label")?.textContent || "";
-      const branchName = label.replace(/^⎇\s*/, "").trim();
-      const match = name && label.includes(name.replace(/^⎇\s*/, ""));
+      const branchName = row.dataset.branchName || (row.querySelector(".file-rail__label")?.textContent || "").replace(/^⎇\s*/, "").trim();
+      const match = name && branchName === name;
       row.classList.toggle("file-rail__item--branch-focus", !!match);
       row.classList.toggle("file-rail__item--branch-fuse", fuseSet.size >= 2 && fuseSet.has(branchName));
+      row.classList.toggle("file-rail__item--branch-current", showCurrent && branchName === cur);
     });
   }
   Object.assign(hw, {
@@ -4059,6 +4167,7 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     syncFuseBar,
     renderBranchRail,
     focusGitBranch,
+    isLaneCurrentGitBranch,
     syncBranchLaneHighlight
   });
 
@@ -4564,13 +4673,13 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
       el.id = "hw-whip-float";
       el.className = "hw-whip-float";
       el.hidden = true;
-      el.innerHTML = `<button type="button" class="hw-whip-float__btn hw-whip-btn" aria-label="\u590D\u5236\u7EA6\u675F" title="\u590D\u5236\u7EA6\u675F"></button>`;
+      el.innerHTML = `<button type="button" class="hw-whip-float__btn hw-whip-btn" aria-label="\u6325\u97AD\u4E0A\u9501" title="\u6325\u97AD\u4E0A\u9501"></button>`;
       el.querySelector(".hw-whip-float__btn").addEventListener("click", (e) => {
         e.preventDefault();
         e.stopPropagation();
         hw.suppressOutsideClick = true;
         if (whipFloatNodesForCopy?.length) {
-          hw.crackWhipOnSelection(whipFloatNodesForCopy, el);
+          hw.lockBoundaryFromSelection(whipFloatNodesForCopy, el);
         }
       });
       document.body.appendChild(el);
@@ -4850,8 +4959,8 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     const btn = hw.els.btnBoundaryCopy;
     if (!btn) return;
     btn.classList.add("hw-whip-btn");
-    btn.title = "\u590D\u5236\u7EA6\u675F";
-    btn.setAttribute("aria-label", "\u590D\u5236\u7EA6\u675F");
+    btn.title = "\u6325\u97AD\u5708\u5B9A\uFF08\u4EC5\u6B64\u8303\u56F4\u53EF\u6539\uFF09";
+    btn.setAttribute("aria-label", "\u6325\u97AD\u5708\u5B9A");
     hw.mountWhipIcon(btn, "hw-whip-btn__svg");
   }
   function ensureFuseWhipButton() {
@@ -4889,7 +4998,7 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     hw.els.btnBoundaryCopy?.addEventListener("click", () => {
       const nodes = hw.selectedWhipNodes();
       if (!nodes.length) return;
-      hw.crackWhipOnSelection(nodes, hw.els.btnBoundaryCopy);
+      hw.lockBoundaryFromSelection(nodes, hw.els.btnBoundaryCopy);
     });
     hw.els.btnBoundaryChat?.addEventListener("click", () => {
       const text = hw.buildBoundaryPrompt();

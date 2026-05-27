@@ -57,3 +57,10 @@ for (const name of whipAudioNames) {
   if (!fs.existsSync(src)) continue;
   syncWhipAudio(src, name);
 }
+
+const licenseSrc = path.join(root, 'LICENSE');
+const licenseDest = path.resolve(__dirname, '../LICENSE');
+if (fs.existsSync(licenseSrc)) {
+  fs.copyFileSync(licenseSrc, licenseDest);
+  console.log('synced LICENSE → extension/LICENSE');
+}

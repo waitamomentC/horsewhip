@@ -31,6 +31,7 @@ function appendFileRailRow(lane) {
   const row = document.createElement('div');
   if (lane.isBranchLane) {
     row.className = 'file-rail__item file-rail__item--branch';
+    if (lane.branchSegment?.name) row.dataset.branchName = lane.branchSegment.name;
     row.style.paddingLeft = `${hw.fileRailIndent(lane.depth)}px`;
     row.title = hw.fileRailTitle(lane);
     const chev = document.createElement('span');

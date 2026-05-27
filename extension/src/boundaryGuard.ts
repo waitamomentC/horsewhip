@@ -1,5 +1,7 @@
 /** Phase 3 — compare git working-tree changes against session allowlist. */
 
+import { boundaryNotesHintForPrompt } from './boundaryNotes';
+
 export const ROOT_BUCKET = '__root__';
 
 export type BoundaryGuardResult = {
@@ -78,10 +80,10 @@ export function buildCorrectionPrompt(allowed: string[], overreach: string[]): s
   const revertHint = overreach.length === 1
     ? `请立即 revert ${overText} 的变更`
     : `请立即 revert ${overText} 的变更`;
-  return `【horsewhip · 越界纠正】
-用户明确要求只修改：${allowText}
-检测到额外改动：${overText}
-${revertHint}，仅保留允许范围内的修改。
+  return `【horsewhip · 跑出圈】
+挥鞭圈定（仅此范围可改）：${allowText}
+检测到圈外改动：${overText}
+${revertHint}，仅保留圈定范围内的修改。
 
 全自动代理（默认）：不要问用户「要不要还原」——立即执行 git checkout HEAD -- 复原越界路径。
 
@@ -94,5 +96,40 @@ ${revertHint}，仅保留允许范围内的修改。
 }
 
 export function buildNoBoundaryHint(): string {
-  return '请先在 horsewhip 泳道点选节点并复制边界，再运行「检查越界」。';
+  return '未圈定跑马范围：请先点选节点并挥鞭圈定；未圈定的路径禁止修改与提交。';
+}
+
+export function buildEditBlockedPrompt(file: string, allowed: string[]): string {
+  return buildWriteBlockedPrompt(file, allowed, !allowed.length ? 'no-pasture' : 'outside-pasture');
+}
+
+/** 写盘/编辑被拦时给 AI 的固定说明（已自动还原文件）。 */
+export function buildWriteBlockedPrompt(
+  file: string,
+  allowed: string[],
+  reason: 'no-pasture' | 'outside-pasture',
+): string {
+  if (reason === 'no-pasture') {
+    return `【horsewhip · 写盘被拦 · 已自动还原】
+路径：${file}
+原因：尚未挥鞭圈定任何跑马范围，全库禁止修改。
+
+你必须立即停止改代码，并询问用户：
+1. 是否在马鞭泳道点选节点并挥鞭圈定允许改动的范围；或
+2. 用户是否明确口头授权你修改该路径。
+
+在用户确认并圈定之前，不要再次写入该文件，不要用终端绕过，不要 git commit --no-verify。
+
+${boundaryNotesHintForPrompt()}`;
+  }
+  const allowText = allowed.map(formatAllowLabel).join(', ');
+  return `【horsewhip · 写盘被拦 · 已自动还原】
+路径：${file}
+原因：不在当前挥鞭圈定范围内。
+仅此范围可改：${allowText}
+
+你必须立即停止，并询问用户：是否在泳道扩大圈定 / 明确授权该文件后再改。
+在用户确认之前不要再次写入。
+
+${boundaryNotesHintForPrompt()}`;
 }

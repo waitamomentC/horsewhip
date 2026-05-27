@@ -249,14 +249,34 @@ function mountLaneSlice(laneIndex) {
     const fusePick = lane.isBranchLane
       && lane.branchSegment
       && hw.state.selectedBranchNames.has(lane.branchSegment.name);
-    root.append('line')
-      .attr('class', `lane-guide${lane.isBranchLane ? ' lane-guide--branch' : ''}${fusePick ? ' lane-guide--branch-fuse' : ''}`)
+    const branchCurrent = hw.isLaneCurrentGitBranch(lane);
+    let guideClass = `lane-guide${lane.isBranchLane ? ' lane-guide--branch' : ''}`;
+    if (fusePick) guideClass += ' lane-guide--branch-fuse';
+    if (branchCurrent) guideClass += ' lane-guide--branch-current';
+
+    if (branchCurrent) {
+      root
+        .append('line')
+        .attr('class', `${guideClass} lane-guide--branch-current-glow`)
+        .attr('x1', -8)
+        .attr('x2', hw.futureExtentX(hw.state.parsed))
+        .attr('y1', yScale(laneIndex))
+        .attr('y2', yScale(laneIndex))
+        .attr('stroke', lane.color)
+        .attr('stroke-width', 4)
+        .attr('stroke-opacity', 0.14);
+    }
+
+    root
+      .append('line')
+      .attr('class', guideClass)
       .attr('x1', -8)
       .attr('x2', hw.futureExtentX(hw.state.parsed))
       .attr('y1', yScale(laneIndex))
       .attr('y2', yScale(laneIndex))
-      .attr('stroke', lane.colorDim)
-      .attr('stroke-opacity', 0.42);
+      .attr('stroke', branchCurrent ? lane.color : lane.colorDim)
+      .attr('stroke-width', branchCurrent ? 1.1 : 1.5)
+      .attr('stroke-opacity', branchCurrent ? 0.92 : 0.42);
 
   }
 

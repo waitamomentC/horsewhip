@@ -4,8 +4,8 @@ function ensureBoundaryWhipButton() {
   const btn = hw.els.btnBoundaryCopy;
   if (!btn) return;
   btn.classList.add('hw-whip-btn');
-  btn.title = '复制约束';
-  btn.setAttribute('aria-label', '复制约束');
+  btn.title = '挥鞭圈定（仅此范围可改）';
+  btn.setAttribute('aria-label', '挥鞭圈定');
   hw.mountWhipIcon(btn, 'hw-whip-btn__svg');
 }
 
@@ -46,7 +46,7 @@ function wireBoundaryBar() {
   hw.els.btnBoundaryCopy?.addEventListener('click', () => {
     const nodes = hw.selectedWhipNodes();
     if (!nodes.length) return;
-    hw.crackWhipOnSelection(nodes, hw.els.btnBoundaryCopy);
+    hw.lockBoundaryFromSelection(nodes, hw.els.btnBoundaryCopy);
   });
   hw.els.btnBoundaryChat?.addEventListener('click', () => {
     const text = hw.buildBoundaryPrompt();

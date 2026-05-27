@@ -6,25 +6,25 @@
 
 ### 不是 Git 图 · 是 AI 动手前的边界尺
 
-在 Cursor / Copilot / Claude Code 改代码之前，用**文件泳道 + 时间轴**看清「动哪、哪一版」，**挥鞭**划出允许修改的范围，再让 AI 在边界内干活。
+在 AI 改代码之前，用**文件泳道 + 时间轴**看清「动哪、哪一版」；**两重鞭子**——泳道上**挥鞭圈定**跑马范围，写盘与 commit **即时拦、自动还原**——未圈定的一律不许改。
 
-**适用于 VS Code · Cursor · Claude Code · Copilot**（协议可进任意支持 `AGENTS.md` 的工具）
+**适用于 VS Code · Cursor**（只装插件）
 
 <br>
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.0.1-orange.svg)](https://github.com/waitamomentC/horsewhip/releases)
+[![Version](https://img.shields.io/badge/version-1.0.8-orange.svg)](https://github.com/waitamomentC/horsewhip/releases)
 [![Install](https://img.shields.io/badge/VS%20Code-Install%20Extension-007ACC?style=flat&logo=visualstudiocode&logoColor=white)](#install-extension)
-[![Protocol](https://img.shields.io/badge/AI-Protocol-6d7ce8?style=flat)](#install-protocol)
+[![Self-guarded](https://img.shields.io/badge/boundary-self--guarded-6d7ce8?style=flat)](#两重鞭子核心)
 [![Demo](https://img.shields.io/badge/Demo-Video%20Soon-9ca3af?style=flat)](#demo)
 
 <br>
 
 | | |
 |:---:|:---:|
-| **乱改** · AI 动了边界外的 B、C | **收束** · 只允许改你划定的路径 |
+| **乱改** · AI 动了边界外的 B、C | **两重鞭** · 圈外写盘即还原，commit 兜底 |
 | 不知道「这一版」动了哪些文件 | 泳道上看 **Cn 上传序** + **文件 Vn** |
-| 自己写小作文约束 AI | **挥鞭** → 一键复制 / 插入 Chat |
+| 自己写小作文约束 AI | **挥鞭圈定** → 仅圈内可改；AI 越界须问用户 |
 
 </div>
 
@@ -36,25 +36,11 @@
 
 | 步骤 | 做什么 |
 |:---:|--------|
-| **1** | 安装 [插件](#install-extension) + [AI 协议](#install-protocol)（一次） |
-| **2** | 打开项目 → 侧栏 **Horsewhip** → 点泳道节点 → **挥鞭** 或 **插入 Chat** |
-| **3** | AI 在边界内改码 → `git commit`（有 origin 则 `push`）→ 插件 **刷新 Git 记录** 看新节点 |
+| **1** | 安装 [插件](#install-extension) → 重载窗口（打开 Git 仓库即激活守门） |
+| **2** | 侧栏 **Horsewhip** → 点选节点 → **挥鞭圈定**（旋转瞄准环 = 仅此可改） |
+| **3** | AI 只在圈内改码 → **你本人** `git commit`（有 origin 则 `push`）→ **刷新 Git 记录** 看新节点 |
 
-<details>
-<summary><strong>展开：协议安装命令</strong></summary>
-
-```bash
-cd /path/to/your-project
-
-# Claude Code（不覆盖已有 CLAUDE.md）
-curl -fsSL https://raw.githubusercontent.com/waitamomentC/horsewhip/main/protocol/scripts/install-claude-horsewhip.sh | bash -s -- .
-
-# Cursor：下载 AGENTS.md 后在 Rules 里 @AGENTS.md
-curl -fsSL -o AGENTS.md \
-  "https://raw.githubusercontent.com/waitamomentC/horsewhip/main/protocol/AGENTS.md"
-```
-
-</details>
+守门元数据在 `.git/horsewhip/`（如 `allowlist.json`、`boundary-notes.md`），**勿提交**到业务仓库。
 
 完整图文步骤：[docs/user-guide.md](./docs/user-guide.md)
 
@@ -63,7 +49,7 @@ curl -fsSL -o AGENTS.md \
 ## Demo
 
 > **演示视频：即将发布**（v1.0 上架后贴链接，约 30–60 秒）  
-> 内容预览：打开泳道 → 点节点划边界 → 挥鞭 / 插入 Chat → commit 后泳道出现新节点 → 可选守门拦截越界。
+> 内容预览：打开泳道 → 点选 → 挥鞭圈定 → Agent 改圈外文件被立即还原 → commit 兜底 → 泳道新节点。
 
 在此之前可先 [安装插件](#install-extension) 按 Quick Start 体验。
 
@@ -87,28 +73,28 @@ curl -fsSL -o AGENTS.md \
 
 ---
 
-## Install Protocol
-
-插件负责**看图划界**；协议负责让 AI **自动 commit / push / 只用 `feature/*` / 守边界**。
-
-| 工具 | 做法 |
-|------|------|
-| **Claude Code** | 运行 [安装脚本](https://raw.githubusercontent.com/waitamomentC/horsewhip/main/protocol/scripts/install-claude-horsewhip.sh)（见 Quick Start） |
-| **Cursor** | 项目根 `AGENTS.md` + Rules 引用 `@AGENTS.md` |
-| **其他** | 复制 [protocol/AGENTS.md](./protocol/AGENTS.md) 到业务仓库根目录 |
-
-与已有 `CLAUDE.md` **可共存**：Git / 边界听 horsewhip，构建架构听你的文件。见 [protocol/docs/claude-code.md](./protocol/docs/claude-code.md)。
-
----
-
 ## What Horsewhip Does
 
 | 时机 | 能力 |
 |------|------|
-| **事前** | 泳道选节点 → 生成边界约束 → 复制 / **插入 Chat** |
-| **事中** | 插件 **allowlist**；保存 / commit 可 **拦截越界**（可选） |
+| **圈地** | 泳道点选 → **挥鞭圈定** commit/路径（瞄准环）；当前 **git 分支** 泳道高亮 |
+| **事中** | **两重鞭子** 守门（见下）；越界可自动还原并提示 AI 询问用户 |
 | **事后** | 刷新泳道，在主泳道看各文件 **第几版**、**第几次上传** |
 | **版本预览** | 节点详情 **检出并运行** → 看完 **恢复工作区** |
+
+### 两重鞭子（核心）
+
+马只能在你圈定的牧场里跑——**未圈定 = 全库禁止修改**；**已圈定 = 仅圈内路径可改**。
+
+| 鞭 | 做什么 | 拦在哪 |
+|----|--------|--------|
+| **第一重 · 挥鞭圈定** | 在泳道选定节点，瞄准环（泳道色、慢速旋转）锁定 **commit + 分支 + 路径** | 未圈定时：编辑器只读；圈外路径不可改 |
+| **第二重 · 写盘守门** | 监听磁盘与编辑（含 **Cursor Agent 直写**）；圈外或未圈定 → **立即 `git` 还原** | 不等 commit；可选向 Chat 插入说明，要求 AI **先问用户** 是否扩大圈定 |
+| **兜底 · commit** | `pre-commit` + 面板提交校验；分支须与瞄准一致 | 防止绕过 IDE 的终端提交 |
+
+不必再复制大段约束贴 Chat：圈定即机器可读（`allowlist.json`）；被拦时读 `edit-blocked.json` 或可选向 Chat 插入说明。
+
+设置见 [docs/boundary-guard.md](./docs/boundary-guard.md)（`blockEdit` · `revertOnWrite` · `notifyAiOnWrite`）。
 
 ---
 
@@ -141,10 +127,9 @@ cd horsewhip && open index.html
 | 文档 | 内容 |
 |------|------|
 | [docs/user-guide.md](./docs/user-guide.md) | 完整操作步骤 |
-| [protocol/AGENTS.md](./protocol/AGENTS.md) | AI 协作协议（v1.0.1） |
-| [docs/boundary-guard.md](./docs/boundary-guard.md) | 守门与 pre-commit |
+| [docs/boundary-guard.md](./docs/boundary-guard.md) | 两重鞭子守门 |
 | [docs/marketplace-publish.md](./docs/marketplace-publish.md) | 上架 VS Code 市场 |
-| [extension/README.md](./extension/README.md) | 插件开发与打包 |
+| [extension/README.md](./extension/README.md) | 插件说明（市场上架详情） |
 
 ---
 
@@ -166,9 +151,31 @@ npm run build:extension    # esbuild + 同步 extension/media + tsc
 
 | 项 | 说明 |
 |----|------|
-| **插件** | **1.0.1**（`extension/package.json`） |
-| **协议** | **v1.0.1**（`protocol/AGENTS.md`，与插件同历） |
-| **迭代** | 1.0.x 小步修 bug / 体验；功能在后续 minor 收 |
+| **插件** | **1.0.9+**（`extension/package.json`，两重鞭子守门） |
+| **本地元数据** | `.git/horsewhip/`（插件写入，勿提交） |
+
+---
+
+## 软件著作权与国内 Git 登记建议
+
+若你计划在国内办理**软件著作权**登记，并关心公开仓库里的**作者署名**与材料可信度，建议如下（**不构成法律意见**；以版权保护中心及代理要求为准）。
+
+### 只用插件
+
+边界与守门由 **VS Code/Cursor 插件**在本地执行（两重鞭子、`.git/horsewhip/`，一般**不进入**你提交的版本库）。本仓库**不包含**任何需安装到业务项目的协议文件。
+
+### Git 提交必须本人在本机完成（重要）
+
+- **每一次** `git commit`、`git push` 请在**本机由你亲自执行**（终端或 IDE 自带 Git 界面）。  
+- **不要**让 Cursor、Claude Code 等 **Agent 代你执行 commit/push**。代提交时说明里常出现 `Co-authored-by: Cursor` 等字段，在 GitHub/GitLab 上会显示 **AI 或工具为共同作者**，与软著材料中「著作权人仅为本人」的常见诉求**相冲突**，**容易导致审查困难或不被认可**。  
+- 可以让 Agent 在插件圈定范围内**改工作区文件**；**写入版本历史**这一步请保留给人。  
+
+### 公开仓库与材料
+
+- 用于软著的源代码、说明书中，提交记录宜为**本人署名**、说明清晰，避免「AI 代提交」等表述。  
+- 若使用本插件，鉴别材料可用：泳道截图、挥鞭圈定、越界被拦界面等**产品行为**。  
+
+网页 Demo（`index.html`）无守门，仅作泳道体验，与登记用插件行为无关。
 
 ---
 
@@ -182,6 +189,6 @@ npm run build:extension    # esbuild + 同步 extension/media + tsc
 
 **仓库** · [github.com/waitamomentC/horsewhip](https://github.com/waitamomentC/horsewhip)
 
-*马鞭 · 为 AI 协作而生 · 简单 Git 习惯 = 清晰边界时间轴*
+*马鞭 · 两重鞭子 · 圈地即守门 · 简单 Git = 清晰边界时间轴*
 
 </div>

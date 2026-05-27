@@ -1,5 +1,6 @@
 node_modules/
 out
+LICENSE
 media/timeline-log.txt
 *.vsix
 # Pre-1.0.0 release packages — do not commit

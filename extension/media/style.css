@@ -327,6 +327,12 @@ body:has(.paste-drop:not([hidden])) .stage {
   background: color-mix(in srgb, var(--accent) 26%, var(--surface));
 }
 
+.file-rail__item--locked {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
 /* Phase 2: task file boundary bar */
 .hw-boundary {
   display: flex;
@@ -880,6 +886,16 @@ body:has(.hw-boundary:not([hidden])) .stage {
 
 .lane-guide--branch { opacity: 0.28; }
 
+/* 当前 git 分支（仅 feature 泳道；主泳道不额外标线） */
+.lane-guide--branch-current {
+  opacity: 1;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, currentColor 40%, transparent));
+}
+
+.lane-guide--branch-current-glow {
+  pointer-events: none;
+}
+
 .link-group { pointer-events: none; }
 .link-segment {
   pointer-events: stroke;
@@ -995,6 +1011,31 @@ body:has(.hw-boundary:not([hidden])) .stage {
   stroke: #fff;
   stroke-width: 3.5;
   paint-order: stroke fill;
+}
+
+.node-group--locked .node-icon,
+.node-group--locked .node-folder-cluster {
+  filter: drop-shadow(0 0 3px color-mix(in srgb, currentColor 35%, transparent));
+}
+
+.node-lock-aim {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: hw-aim-rotate 7s linear infinite;
+}
+
+.node-lock-ring--outer {
+  animation: hw-aim-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes hw-aim-rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes hw-aim-pulse {
+  0%, 100% { opacity: 0.88; }
+  50% { opacity: 1; }
 }
 
 @keyframes whip-crack {
@@ -1721,6 +1762,11 @@ body.hw-plugin .hw-copy-toast { bottom: 40px; }
 
 .file-rail__item--branch-focus {
   background: rgba(109, 126, 232, 0.14);
+}
+
+.file-rail__item--branch-current {
+  box-shadow: inset 2px 0 0 currentColor;
+  background: color-mix(in srgb, currentColor 10%, var(--surface));
 }
 
 body.hw-plugin .file-rail {

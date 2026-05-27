@@ -144,7 +144,8 @@ function syncFuseBar() {
   if (hw.els.btnFuseChat) hw.els.btnFuseChat.disabled = !show;
 
   if (show && hw.isPluginHost() && window.HorsewhipPluginBridge?.setBoundaryAllowlist) {
-    window.HorsewhipPluginBridge.setBoundaryAllowlist(hw.fusionBoundaryFiles());
+    // 融合预选 ≠ 挥鞭圈定，不得自动 locked
+    window.HorsewhipPluginBridge.setBoundaryAllowlist([], false);
   } else if (!show && hw.isPluginHost()) {
     hw.syncBoundaryBar();
   }
@@ -229,16 +230,27 @@ function focusGitBranch(name) {
   hw.syncBranchLaneHighlight();
 }
 
+function isLaneCurrentGitBranch(lane) {
+  if (!lane?.isBranchLane || !lane.branchSegment) return false;
+  const cur = String(hw.state.currentGitBranch || '').trim();
+  if (!cur || hw.isMainBranchName(cur)) return false;
+  return lane.branchSegment.name === cur;
+}
+
 function syncBranchLaneHighlight() {
   if (!hw.els.fileRailInner) return;
   const name = hw.state.highlightBranchName;
   const fuseSet = hw.state.selectedBranchNames;
+  const cur = String(hw.state.currentGitBranch || '').trim();
+  const showCurrent = cur && !hw.isMainBranchName(cur);
   hw.els.fileRailInner.querySelectorAll('.file-rail__item--branch').forEach((row) => {
-    const label = row.querySelector('.file-rail__label')?.textContent || '';
-    const branchName = label.replace(/^⎇\s*/, '').trim();
-    const match = name && label.includes(name.replace(/^⎇\s*/, ''));
+    const branchName =
+      row.dataset.branchName
+      || (row.querySelector('.file-rail__label')?.textContent || '').replace(/^⎇\s*/, '').trim();
+    const match = name && branchName === name;
     row.classList.toggle('file-rail__item--branch-focus', !!match);
     row.classList.toggle('file-rail__item--branch-fuse', fuseSet.size >= 2 && fuseSet.has(branchName));
+    row.classList.toggle('file-rail__item--branch-current', showCurrent && branchName === cur);
   });
 }
 
@@ -257,5 +269,6 @@ Object.assign(hw, {
   syncFuseBar,
   renderBranchRail,
   focusGitBranch,
+  isLaneCurrentGitBranch,
   syncBranchLaneHighlight,
 });

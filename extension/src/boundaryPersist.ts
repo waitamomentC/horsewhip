@@ -5,10 +5,24 @@ const GIT_META_DIR = path.join('.git', 'horsewhip');
 const ALLOWLIST_NAME = 'allowlist.json';
 const COMMIT_BLOCKED_NAME = 'commit-blocked.json';
 
+export type PersistedLockTarget = {
+  nodeId: string;
+  commit: string;
+  branch: string;
+  lanePath?: string;
+  files: string[];
+};
+
 export type PersistedAllowlist = {
-  version: 1;
+  version: 1 | 2;
   updatedAt: string;
   allowed: string[];
+  /** true after whip-lock; false/absent = preview-only selection */
+  locked?: boolean;
+  /** commit + branch aim (v2) */
+  targets?: PersistedLockTarget[];
+  /** git branch --show-current when lock was armed */
+  currentBranch?: string;
 };
 
 export function allowlistFilePath(workspaceRoot: string): string {
@@ -26,25 +40,79 @@ export function preCommitGuardScriptPath(workspaceRoot: string): string {
 export async function persistAllowlistToDisk(
   workspaceRoot: string,
   allowed: string[],
+  locked = false,
+  targets: PersistedLockTarget[] = [],
+  currentBranch = '',
 ): Promise<void> {
   const file = allowlistFilePath(workspaceRoot);
   const dir = path.dirname(file);
   await fs.promises.mkdir(dir, { recursive: true });
+  const sortedAllowed = [...new Set(allowed.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  const isLocked = locked && sortedAllowed.length > 0;
   const payload: PersistedAllowlist = {
-    version: 1,
+    version: 2,
     updatedAt: new Date().toISOString(),
-    allowed: [...new Set(allowed.filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+    allowed: sortedAllowed,
+    locked: isLocked ? true : undefined,
+    targets: isLocked && targets.length ? targets : undefined,
+    currentBranch: isLocked && currentBranch ? currentBranch : undefined,
   };
   await fs.promises.writeFile(file, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 }
 
 export async function readAllowlistFromDisk(workspaceRoot: string): Promise<string[]> {
+  const rec = await readAllowlistRecord(workspaceRoot);
+  return rec?.allowed ?? [];
+}
+
+export async function readAllowlistRecord(
+  workspaceRoot: string,
+): Promise<PersistedAllowlist | null> {
   try {
     const raw = await fs.promises.readFile(allowlistFilePath(workspaceRoot), 'utf8');
     const data = JSON.parse(raw) as PersistedAllowlist;
-    return Array.isArray(data.allowed) ? data.allowed : [];
+    if (!Array.isArray(data.allowed)) return null;
+    return data;
   } catch {
-    return [];
+    return null;
+  }
+}
+
+const EDIT_BLOCKED_NAME = 'edit-blocked.json';
+
+export type EditBlockedRecord = {
+  version: 1;
+  at: string;
+  file: string;
+  allowed: string[];
+  message: string;
+};
+
+export function editBlockedFilePath(workspaceRoot: string): string {
+  return path.join(workspaceRoot, GIT_META_DIR, EDIT_BLOCKED_NAME);
+}
+
+export async function writeEditBlockedMarker(
+  workspaceRoot: string,
+  payload: Omit<EditBlockedRecord, 'version' | 'at'> & { at?: string },
+): Promise<void> {
+  const file = editBlockedFilePath(workspaceRoot);
+  await fs.promises.mkdir(path.dirname(file), { recursive: true });
+  const body: EditBlockedRecord = {
+    version: 1,
+    at: payload.at ?? new Date().toISOString(),
+    file: payload.file,
+    allowed: payload.allowed,
+    message: payload.message,
+  };
+  await fs.promises.writeFile(file, `${JSON.stringify(body, null, 2)}\n`, 'utf8');
+}
+
+export async function clearEditBlockedMarker(workspaceRoot: string): Promise<void> {
+  try {
+    await fs.promises.unlink(editBlockedFilePath(workspaceRoot));
+  } catch {
+    /* absent */
   }
 }
 

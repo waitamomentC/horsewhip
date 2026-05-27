@@ -4,8 +4,9 @@
 
 ## 使用步骤
 
-1. 在泳道 **点选节点** → horsewhip 复制/插入 **事前约束**（同时写入会话 allowlist）。
-2. 让 AI 在 Cursor 里改代码。
+1. 在泳道 **点选节点**（预览）→ **挥鞭圈定**（旋转色环 = 仅此范围可改）。
+2. **未圈定**：全库不可编辑；Agent/终端**一写盘即还原**（`revertOnWrite`），并可选插入 Chat 请 AI 向用户确认是否圈定。**已圈定**：仅圈内可改；圈外写盘同样即时还原。
+3. commit / pre-commit 仍为最后一道兜底。
 3. 点击顶栏 **「检查越界」**，或保存文件时自动检查（设置 `horsewhip.guard.onSave`）。
 4. 若越界：
    - **插入纠正到 Chat**：把 revert 指令发给 AI；
@@ -15,7 +16,7 @@
 
 | 显示 | 含义 |
 |------|------|
-| 未划定边界 | 尚未在泳道选节点 |
+| 未上锁 | 尚未挥鞭锁定边界 |
 | 边界内 | 有改动且均在 allowlist 内 |
 | 越界 N | 有 N 个路径不在边界内 |
 
@@ -68,7 +69,7 @@
 | **全自动 vibe agent**（默认） | `always`：立即还原，不弹窗 |
 | **人在回路**（用户坐 IDE 前） | 改为 `prompt`：弹窗选「还原 / 插入纠正 / 稍后」 |
 
-协议见 [`protocol/AGENTS.md`](../protocol/AGENTS.md) §F.2–F.4。
+边界说明见插件写入的 `.git/horsewhip/boundary-notes.md`。
 
 allowlist：**`.git/horsewhip/allowlist.json`**（不进版本库）。
 
@@ -82,6 +83,12 @@ allowlist：**`.git/horsewhip/allowlist.json`**（不进版本库）。
 | `horsewhip.guard.revertOnCommitBlock` | `always` | `always` 全自动默认还原；`prompt` 人在回路弹窗；`never` 仅拦不还原 |
 | `horsewhip.guard.notifyOnCommitBlock` | `false` | `always` 时是否仍弹通知条（默认否，少打断 agent） |
 | `horsewhip.guard.offerCorrectionAfterRevert` | `true` | 还原后自动插入纠正到 Chat（含 3 轮边界内重试与扩边界说明） |
+| `horsewhip.guard.blockEdit` | `off` | 可选编辑期只读；默认只靠 commit 守门（推荐） |
+| `horsewhip.guard.offerEditBlockToChat` | `true` | 编辑被拦时可插入说明到 Chat |
+
+allowlist 需含 **`"locked": true`**（挥鞭后写入）时，编辑锁、commit 与 pre-commit 才生效。
+
+插件自动维护 **`.git/horsewhip/boundary-notes.md`**。编辑被拦：**`edit-blocked.json`**。
 
 ### 手动安装 hook
 

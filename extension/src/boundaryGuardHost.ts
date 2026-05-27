@@ -5,7 +5,17 @@ import {
   computeBoundaryGuard,
   type BoundaryGuardResult,
 } from './boundaryGuard';
-import { getEffectiveAllowlist } from './boundaryAllowlist';
+import {
+  getEffectiveAllowlist,
+  getEffectiveBoundaryLocked,
+  getEffectiveLockTargets,
+} from './boundaryAllowlist';
+import { evaluateBranchLock } from './boundaryLock';
+import {
+  onBoundaryLockChanged,
+  refreshEditorsForBoundary,
+  registerBoundaryEditGuard,
+} from './boundaryEditGuard';
 import { isHorsewhipPreCommitHookInstalled } from './boundaryGitHook';
 import {
   clearCommitBlockedMarker,
@@ -93,7 +103,8 @@ export async function notifyBoundaryArmed(workspaceRoot: string, files: string[]
 }
 
 export async function evaluateCommitGuard(workspaceRoot: string): Promise<CommitGuardVerdict> {
-  const allowlist = await getEffectiveAllowlist(workspaceRoot);
+  const locked = await getEffectiveBoundaryLocked(workspaceRoot);
+  const allowlist = locked ? await getEffectiveAllowlist(workspaceRoot) : [];
   const actual = await fetchWorkingTreeChangedFiles(workspaceRoot);
   const result = computeBoundaryGuard(allowlist, actual);
   lastResult = result;
@@ -106,10 +117,14 @@ export async function evaluateCommitGuard(workspaceRoot: string): Promise<Commit
   }
   if (!result.hasBoundary) {
     if (blockCommitWithoutBoundary) {
+      const dirtyHint =
+        result.actual.length > 0
+          ? `工作区已有 ${result.actual.length} 个路径改动，`
+          : '';
       return {
         allowed: false,
         result,
-        reason: '未在泳道划定边界，commit 已拦截。请先点选节点再提交。',
+        reason: `未挥鞭圈定跑马范围，${dirtyHint}禁止任何修改与提交。请先点选节点并挥鞭圈定；或先还原圈外改动。`,
       };
     }
     return { allowed: true, result };
@@ -118,9 +133,20 @@ export async function evaluateCommitGuard(workspaceRoot: string): Promise<Commit
     return {
       allowed: false,
       result,
-      reason: `越界 ${result.overreach.length} 个文件，commit 已拦截。`,
+      reason: `圈外改动 ${result.overreach.length} 个文件，commit 已拦截（仅允许修改已挥鞭圈定的路径）。`,
     };
   }
+
+  const targets = await getEffectiveLockTargets(workspaceRoot);
+  const branchVerdict = await evaluateBranchLock(workspaceRoot, targets);
+  if (!branchVerdict.ok) {
+    return {
+      allowed: false,
+      result,
+      reason: branchVerdict.reason ?? '分支与瞄准不一致，commit 已拦截。',
+    };
+  }
+
   return { allowed: true, result };
 }
 
@@ -172,7 +198,7 @@ async function finishRevertFlow(
       `仍有越界：${overreachPreview(again.result.overreach)}。可再次还原或检查守门。`,
     );
   } else if (!again.result.hasBoundary) {
-    vscode.window.showWarningMessage('尚未在泳道划定边界，提交仍会被拦截。');
+    vscode.window.showWarningMessage('尚未在泳道挥鞭上锁，提交仍会被拦截。');
   }
   return false;
 }
@@ -208,7 +234,7 @@ export async function handleCommitBlocked(
   const detail =
     r.overreach.length > 0
       ? `拦截只阻止了 commit，以下越界文件仍留在工作区，必须复原后再提交：\n${r.overreach.join('\n')}`
-      : verdict.reason ?? '请先划定边界或清除越界改动。';
+      : verdict.reason ?? '请先挥鞭上锁或清除越界改动。';
 
   const actions: string[] = [];
   if (r.overreach.length) {
@@ -276,7 +302,7 @@ export async function processCommitBlockedMarker(workspaceRoot: string): Promise
     reason:
       marker.overreach.length > 0
         ? `上次 commit 被拦截，越界文件仍在工作区：${overreachPreview(marker.overreach)}`
-        : '上次 commit 被拦截，请先划定边界。',
+        : '上次 commit 被拦截，请先挥鞭上锁。',
   };
 
   notifyCommitBlockedUi(result, verdict.reason!, marker.source);
@@ -292,7 +318,7 @@ export async function processCommitBlockedMarker(workspaceRoot: string): Promise
   }
 
   const pick = await vscode.window.showWarningMessage(
-    `horsewhip：${verdict.reason}\n\n请还原越界文件，并让 AI 仅在边界内重想方案（见 protocol/AGENTS.md §F.2–F.3）。`,
+    `horsewhip：${verdict.reason}\n\n请还原越界文件，仅在边界内继续（见 .git/horsewhip/boundary-notes.md）。`,
     { modal: false },
     '还原越界文件',
     '插入纠正到 Chat',
@@ -328,27 +354,27 @@ function updateStatusBar(result: BoundaryGuardResult | null): void {
   if (!statusBar) return;
   if (!result) {
     statusBar.text = '$(shield) horsewhip 守门';
-    statusBar.tooltip = '在泳道选节点划定边界后，可检查 AI 是否改飞';
+    statusBar.tooltip = '在泳道选节点并挥鞭上锁后，可检查 AI 是否改飞';
     statusBar.backgroundColor = undefined;
     statusBar.command = 'horsewhip.checkBoundary';
     return;
   }
   if (!result.hasBoundary) {
-    statusBar.text = '$(shield) 未划定边界';
+    statusBar.text = '$(circle-slash) 未圈定';
     statusBar.tooltip = buildNoBoundaryHint();
     statusBar.backgroundColor = undefined;
     statusBar.command = 'horsewhip.checkBoundary';
     return;
   }
   if (result.ok) {
-    statusBar.text = '$(check) 边界内';
-    statusBar.tooltip = `允许：${result.allowed.map((p) => p).join(', ') || '—'}`;
+    statusBar.text = '$(check) 圈定内可改';
+    statusBar.tooltip = `仅此可改：${result.allowed.map((p) => p).join(', ') || '—'}`;
     statusBar.backgroundColor = undefined;
     statusBar.command = 'horsewhip.checkBoundary';
     return;
   }
-  statusBar.text = `$(warning) 越界 ${result.overreach.length}`;
-  statusBar.tooltip = `额外改动：\n${result.overreach.join('\n')}\n\n点击：检查 / 纠正`;
+    statusBar.text = `$(warning) 圈外 ${result.overreach.length}`;
+    statusBar.tooltip = `圈外改动（禁止）：\n${result.overreach.join('\n')}\n\n点击：检查 / 纠正`;
   statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
   statusBar.command = 'horsewhip.checkBoundary';
 }
@@ -479,14 +505,33 @@ function scheduleSaveCheck(workspaceRoot: string): void {
   if (saveDebounce) clearTimeout(saveDebounce);
   saveDebounce = setTimeout(() => {
     saveDebounce = undefined;
-    void getEffectiveAllowlist(workspaceRoot).then((allowlist) => {
+    void (async () => {
+      const locked = await getEffectiveBoundaryLocked(workspaceRoot);
+      if (!locked) {
+        await runBoundaryGuardCheck(workspaceRoot, { silent: true, fromSave: true });
+        return;
+      }
+      const allowlist = await getEffectiveAllowlist(workspaceRoot);
       if (!allowlist.length) return;
       void runBoundaryGuardCheck(workspaceRoot, { silent: true, fromSave: true });
-    });
+    })();
   }, 600);
 }
 
+export async function syncBoundaryLockFromWebview(
+  workspaceRoot: string,
+  files: string[],
+  locked: boolean,
+): Promise<void> {
+  const blockEdit = vscode.workspace.getConfiguration('horsewhip.guard').get<string>('blockEdit', 'lock');
+  if (blockEdit !== 'off') {
+    await onBoundaryLockChanged(workspaceRoot, locked, files);
+    await refreshEditorsForBoundary(workspaceRoot);
+  }
+}
+
 export function registerBoundaryGuard(context: vscode.ExtensionContext): void {
+  registerBoundaryEditGuard(context);
   statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   statusBar.command = 'horsewhip.checkBoundary';
   statusBar.show();
