@@ -52,18 +52,36 @@
 
 | 入口 | 行为 |
 |------|------|
-| horsewhip 面板 **提交** | `horsewhip.guard.blockCommit=true` 时，越界则弹窗并 **拒绝提交** |
-| 终端 `git commit` | 自动安装 **pre-commit** 钩子（`horsewhip.guard.installHookOnOpen`） |
+| horsewhip 面板 **提交** | 越界则弹窗并 **拒绝提交** |
+| 终端 `git commit` | **pre-commit** 钩子拦截 |
 
-allowlist 会写入 **`.git/horsewhip/allowlist.json`**（不进入版本库），供钩子读取。
+**重要**：拦截只阻止 commit 写入历史，**不会**自动改回工作区。例如锁定 `A` 却改了 `B` → 提交失败后 **`B` 仍在磁盘上**。
+
+### 被拦之后（成熟产品路径）
+
+1. 写入 **`.git/horsewhip/commit-blocked.json`**（记录越界列表）
+2. 插件检测到标记 → 顶栏 / Webview 状态；**默认自动还原越界**（全自动 agent 不问用户）
+3. 插入 Chat 纠正文案 → AI **仅在边界内重想**（最多 3 轮）→ 仍不行则 **请用户在泳道扩大边界**
+
+| 场景 | `revertOnCommitBlock` |
+|------|------------------------|
+| **全自动 vibe agent**（默认） | `always`：立即还原，不弹窗 |
+| **人在回路**（用户坐 IDE 前） | 改为 `prompt`：弹窗选「还原 / 插入纠正 / 稍后」 |
+
+协议见 [`protocol/AGENTS.md`](../protocol/AGENTS.md) §F.2–F.4。
+
+allowlist：**`.git/horsewhip/allowlist.json`**（不进版本库）。
 
 ### 设置
 
 | 键 | 默认 | 说明 |
 |----|------|------|
 | `horsewhip.guard.blockCommit` | `true` | 有边界且越界 → 拦截 commit |
-| `horsewhip.guard.blockCommitWithoutBoundary` | `true` | `true` 时未划边界也拦截 |
+| `horsewhip.guard.blockCommitWithoutBoundary` | `true` | 未划边界也拦截 |
 | `horsewhip.guard.installHookOnOpen` | `true` | 打开文件夹时安装 git hook |
+| `horsewhip.guard.revertOnCommitBlock` | `always` | `always` 全自动默认还原；`prompt` 人在回路弹窗；`never` 仅拦不还原 |
+| `horsewhip.guard.notifyOnCommitBlock` | `false` | `always` 时是否仍弹通知条（默认否，少打断 agent） |
+| `horsewhip.guard.offerCorrectionAfterRevert` | `true` | 还原后自动插入纠正到 Chat（含 3 轮边界内重试与扩边界说明） |
 
 ### 手动安装 hook
 

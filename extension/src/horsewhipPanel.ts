@@ -9,8 +9,9 @@ export class HorsewhipPanel {
   private constructor(
     private readonly panel: vscode.WebviewPanel,
     extensionUri: vscode.Uri,
+    storageUri: vscode.Uri,
   ) {
-    this.timeline = new HorsewhipTimeline(panel.webview, extensionUri);
+    this.timeline = new HorsewhipTimeline(panel.webview, extensionUri, storageUri);
     this.timeline.bind();
 
     panel.onDidDispose(() => {
@@ -23,7 +24,7 @@ export class HorsewhipPanel {
     panel.iconPath = vscode.Uri.joinPath(extensionUri, 'media', 'horsewhip.svg');
   }
 
-  static async open(extensionUri: vscode.Uri): Promise<HorsewhipPanel> {
+  static async open(extensionUri: vscode.Uri, storageUri: vscode.Uri): Promise<HorsewhipPanel> {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     await vscode.commands.executeCommand('workbench.action.closeSidebar');
 
@@ -40,11 +41,14 @@ export class HorsewhipPanel {
       {
         enableScripts: true,
         retainContextWhenHidden: true,
-        localResourceRoots: [vscode.Uri.joinPath(extensionUri, 'media')],
+        localResourceRoots: [
+          vscode.Uri.joinPath(extensionUri, 'media'),
+          storageUri,
+        ],
       },
     );
 
-    HorsewhipPanel.instance = new HorsewhipPanel(panel, extensionUri);
+    HorsewhipPanel.instance = new HorsewhipPanel(panel, extensionUri, storageUri);
     await HorsewhipPanel.instance.timeline.refresh();
     return HorsewhipPanel.instance;
   }

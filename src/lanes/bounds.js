@@ -29,6 +29,55 @@ function laneSegmentBounds(lane, seg, parsed) {
   return { forkV, mergeV };
 }
 
+/** Tooltip: branch commit pushed from prior node on same branch, or first fork from main. */
+function branchLaneProvenanceLine(node, seg, parsed) {
+  const p = parsed || hw.state.parsed;
+  if (!node?.lane?.isBranchLane || !seg?.commits?.length || !p?.commitMap) return null;
+  const commit = node.hash ? p.commitMap[node.hash] : null;
+  if (!commit) return null;
+  const parentPath = node.lane.parentLanePath;
+  const branchLabel = seg.name || seg.id || 'branch';
+  const chainSet = new Set(seg.commits.map((c) => c.hash));
+  const nodeCol = commit.versionIndex ?? commit.displayColumn ?? node.displayColumn ?? node.graphX ?? 0;
+
+  const formatRef = (c) => {
+    if (!c) return '?';
+    const gc = hw.formatGlobalCommitColumn(c.displayColumn ?? c.versionIndex);
+    if (hw.PER_LANE_VERSION && parentPath && c.laneVersions?.[parentPath] != null) {
+      return `${hw.formatLaneVersion(c.laneVersions[parentPath])}（${gc}）`;
+    }
+    return gc;
+  };
+
+  let pred = null;
+  const gitParent = commit.parents?.[0] && p.commitMap[commit.parents[0]];
+  if (gitParent && chainSet.has(gitParent.hash)) pred = gitParent;
+
+  if (!pred) {
+    seg.commits.forEach((c) => {
+      if (c.hash === commit.hash) return;
+      const cCol = c.versionIndex ?? c.displayColumn ?? 0;
+      if (cCol >= nodeCol) return;
+      if (!pred || cCol > (pred.versionIndex ?? pred.displayColumn)) pred = c;
+    });
+  }
+
+  if (pred) {
+    return `⎇ ${branchLabel} · 沿分支由 ${formatRef(pred)} 推进`;
+  }
+
+  const parentLane = hw.state.catalog?.lanes?.find((l) => l.path === parentPath && !l.isBranchLane);
+  const forkV = parentLane
+    ? hw.laneForkV(parentLane, seg, p)
+    : (p.commitMap[seg.forkHash]?.versionIndex ?? 1);
+  return `⎇ ${branchLabel} · 从主泳道 ${hw.formatGlobalCommitColumn(forkV)} 分出`;
+}
+
+function branchLaneProvenanceIsContinuation(node, seg, parsed) {
+  const line = hw.branchLaneProvenanceLine(node, seg, parsed);
+  return Boolean(line && line.includes('沿分支由'));
+}
+
 function commitBlockedOnParentLane(commit, lane, parsed) {
   const trunk = parsed.trunkLaneCommitSet || parsed.mainlineSet;
   if (trunk.has(commit.hash)) return false;
@@ -128,6 +177,8 @@ function commitAppliesToLane(commit, lane, parsed) {
 Object.assign(hw, {
   segmentsForLane,
   laneForkV,
+  branchLaneProvenanceLine,
+  branchLaneProvenanceIsContinuation,
   laneSegmentBounds,
   commitBlockedOnParentLane,
   parentLaneTrackHoles,

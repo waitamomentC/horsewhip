@@ -145,19 +145,6 @@ export function bootstrap() {
     if (e.target === hw.els.modalBackdrop) hw.closeModal();
   });
 
-  hw.els.btnCopyConstraint?.addEventListener('click', () => hw.copyText(hw.els.modalConstraint.textContent, hw.els.btnCopyConstraint));
-  hw.els.btnCopyCheckout?.addEventListener('click', () => hw.copyText(hw.els.modalCmdFile.textContent, hw.els.btnCopyCheckout));
-  hw.els.btnToggleReset?.addEventListener('click', () => {
-    const hidden = hw.els.rollbackDanger.hidden;
-    hw.els.rollbackDanger.hidden = !hidden;
-    hw.els.btnToggleReset.textContent = hidden ? 'hide' : 'confirm';
-  });
-  hw.els.resetConfirm?.addEventListener('input', () => {
-    hw.els.btnCopyReset.disabled = hw.els.resetConfirm.value.trim() !== 'RESET';
-  });
-  hw.els.btnCopyReset?.addEventListener('click', () => {
-    if (hw.els.resetConfirm.value.trim() === 'RESET') hw.copyText(hw.els.modalCmdReset.textContent, hw.els.btnCopyReset);
-  });
   hw.els.btnCopyLink?.addEventListener('click', () => {
     hw.copyText(hw.els.linkPanel.dataset.constraint || hw.els.linkConstraintText.textContent, hw.els.btnCopyLink);
   });

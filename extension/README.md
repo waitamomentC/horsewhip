@@ -40,19 +40,23 @@ AI 改完后对比 **allowlist** 与 **git 工作区改动**：
 
 ## 开发调试
 
+在**仓库根目录**（不是只打开 `extension/` 子文件夹时也要能 F5）：
+
 ```bash
-cd extension
-npm install
-npm run sync-assets
-npm run compile
+npm install          # 根目录：esbuild
+cd extension && npm install
+cd ..
+npm run build:extension   # esbuild script.js → 同步 extension/media → tsc
 ```
 
-打开 **`extension/`** → **F5** → 新窗口打开带 git 的文件夹 → 点 Horsewhip 图标。
+然后在 Cursor/VS Code 打开**仓库根** `horsewhip/` → **F5**（已配置 `preLaunchTask` 自动跑 `build:extension`）→ 新窗口打开带 git 的项目 → horsewhip。
+
+若提示「脚本未加载」，说明 `extension/media/script.js` 过期，再执行一次 `npm run build:extension` 并 Reload Window。
 
 ## 版本号
 
-- 当前基线：**0.7.0**（`extension/package.json`）
-- 每次 `npm run package` 会自动 `bump:build`（semver 补丁位）：`0.7.0` → `0.7.1` → `0.7.2` …
+- 当前基线：**0.8.0**（`extension/package.json`；正式推出目标 **1.0.0**，此前仍会多轮迭代）
+- 每次 `npm run package` 会自动 `bump:build`（semver 补丁位）：`0.8.0` → `0.8.1` → `0.8.2` …
 - 仅本地 F5 调试可不 bump；手动递增：`cd extension && npm run bump:build`
 
 修改仓库根目录 `script.js` / `style.css` 后：

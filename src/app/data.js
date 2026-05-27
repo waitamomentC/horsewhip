@@ -169,6 +169,9 @@ function loadAndRender(text) {
     if (typeof d3 === 'undefined') {
       throw new Error('d3 未加载，无法绘制泳道');
     }
+    if (hw.isPluginHost() && hw.els.graphEmpty) {
+      hw.els.graphEmpty.classList.add('hidden');
+    }
     hw.state.headSnapshotBeforeLoad = hw.captureHeadSnapshot();
     const savedExpanded = hw.isPluginHost() ? new Set(hw.state.expandedPaths) : null;
     hw.state.rawLogText = text;
@@ -204,6 +207,13 @@ function loadAndRender(text) {
       hw.syncBoundaryBar();
     }
   } catch (e) {
+    if (hw.isPluginHost() && hw.els.graphEmpty) {
+      hw.els.graphEmpty.classList.remove('hidden');
+      const title = hw.els.graphEmpty.querySelector('.graph-empty__title');
+      const desc = hw.els.graphEmpty.querySelector('.graph-empty__desc');
+      if (title) title.textContent = '泳道绘制失败';
+      if (desc) desc.textContent = e.message || String(e);
+    }
     hw.showError(e.message || String(e));
   }
 }

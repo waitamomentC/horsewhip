@@ -33,8 +33,11 @@ function onFileNodeClick(ev, node) {
 
 function openNodeModal(node) {
   if (hw.isBranchGraphAnchor(node)) return;
-  hw.state.modalNode = node;
   const files = node.files || [node.filePath];
+  const parsed = hw.state.parsed;
+  const branchRef = hw.branchRefOnNode(node, parsed);
+  node.branchRef = branchRef;
+  hw.state.modalNode = node;
   hw.els.modalTitle.textContent = (() => {
     const ver = hw.nodeVersionTooltipLine(node);
     const subj = hw.commitSubjectForNode(node);
@@ -49,16 +52,6 @@ function openNodeModal(node) {
     if (folderPath) return hw.constraintFolder(folderPath);
     return files.length === 1 ? hw.constraintSingle(files[0]) : hw.constraintMulti(files);
   })();
-  hw.els.modalCmdFile.textContent = node.isFolderAggregate
-    ? `# 文件夹边界 · 请按需 checkout 目录下具体文件\n${files.map((f) => hw.cmdCheckout(node.hash, f)).join('\n')}`
-    : (files.length === 1
-      ? hw.cmdCheckout(node.hash, files[0])
-      : files.map((f) => hw.cmdCheckout(node.hash, f)).join('\n'));
-  hw.els.modalCmdReset.textContent = hw.cmdResetHard(node.hash);
-  hw.els.rollbackDanger.hidden = true;
-  hw.els.resetConfirm.value = '';
-  hw.els.btnCopyReset.disabled = true;
-  hw.els.btnToggleReset.textContent = 'confirm';
   hw.els.modalBackdrop.hidden = false;
 }
 

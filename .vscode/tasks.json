@@ -1,0 +1,40 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "horsewhip: build web",
+      "type": "npm",
+      "script": "build:web",
+      "path": "${workspaceFolder}",
+      "problemMatcher": []
+    },
+    {
+      "label": "horsewhip: sync assets",
+      "type": "npm",
+      "script": "sync-assets",
+      "path": "${workspaceFolder}/extension",
+      "problemMatcher": []
+    },
+    {
+      "label": "horsewhip: compile extension",
+      "type": "npm",
+      "script": "compile",
+      "path": "${workspaceFolder}/extension",
+      "problemMatcher": "$tsc"
+    },
+    {
+      "label": "horsewhip: build extension",
+      "dependsOn": [
+        "horsewhip: build web",
+        "horsewhip: sync assets",
+        "horsewhip: compile extension"
+      ],
+      "dependsOrder": "sequence",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}

@@ -16,7 +16,10 @@ function commitBelongsToBranch(commit, branchName) {
   if (!bn) return false;
   if ((commit.refs || []).some((r) => hw.normalizeRefName(r).toLowerCase() === bn)) return true;
   const sub = (commit.subject || '').toLowerCase();
-  return sub.includes(bn) || sub.includes(`on ${bn} branch`);
+  const escaped = bn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (new RegExp(`(^|\\s)${escaped}($|[\\s:])`, 'i').test(sub)) return true;
+  if (new RegExp(`merge\\s+${escaped}([\\s:]|$)`, 'i').test(sub)) return true;
+  return sub.includes(`on ${bn} branch`);
 }
 
 function hasBranchRef(commit) {
@@ -43,7 +46,7 @@ function findMergeCommitForBranch(parsed, chain, seg) {
   const candidates = [];
   parsed.commits.forEach((c) => {
     if (c.parents.length < 2) return;
-    if (!hw.segmentOwnsMergeCommit(seg, c, chain, parsed)) return;
+    if (!hw.segmentParticipatedInMerge(seg, c, chain, parsed)) return;
     const mergeCol = c.versionIndex ?? c.displayColumn ?? 0;
     const allAfterMerge = chain.every((x) => {
       const col = x.versionIndex ?? x.displayColumn ?? 0;
@@ -91,8 +94,11 @@ function applyBranchSegmentFromTip(seg, parsed, tip, chain, forkHash) {
     mergeGraphX: mergeHash ? commitMap[mergeHash]?.graphX ?? null : null,
     outOfLog: false,
   });
+  const tipAtMerge = mergeHash ? hw.branchTipAtMerge(seg, parsed) : null;
   seg.continued = hw.branchMergeIsBehindTip(seg, parsed)
-    || (!mergeHash && tip && !mainlineSet.has(tip));
+    || hw.branchHasCommitsAfterMerge(seg, parsed)
+    || (mergeHash && tip && !mainlineSet.has(tip.hash) && tipAtMerge && tipAtMerge.hash !== tip.hash)
+    || (!mergeHash && tip && !mainlineSet.has(tip.hash));
 }
 
 function enrichBranchSegmentsFromGitBranches(parsed, branches) {

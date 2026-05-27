@@ -1,8 +1,9 @@
-import { gitHasCommits } from './gitRunner';
-import { currentBranch, getRemoteUrl } from './githubRemote';
+import { gitBranchDisplay, gitHasCommits } from './gitRunner';
+import { getRemoteUrl } from './githubRemote';
 
 export type RepoStatus = {
   branch: string;
+  detached: boolean;
   remoteUrl: string | null;
   htmlUrl: string | null;
   hasCommits: boolean;
@@ -18,8 +19,14 @@ export function remoteToHtmlUrl(remoteUrl: string): string | null {
 
 export async function getRepoStatus(cwd: string): Promise<RepoStatus> {
   const hasCommits = await gitHasCommits(cwd);
-  const branch = hasCommits ? await currentBranch(cwd) : '—';
+  const branchInfo = hasCommits ? await gitBranchDisplay(cwd) : { label: '—', detached: false };
   const remoteUrl = await getRemoteUrl(cwd);
   const htmlUrl = remoteUrl ? remoteToHtmlUrl(remoteUrl) : null;
-  return { branch, remoteUrl, htmlUrl, hasCommits };
+  return {
+    branch: branchInfo.label,
+    detached: branchInfo.detached,
+    remoteUrl,
+    htmlUrl,
+    hasCommits,
+  };
 }

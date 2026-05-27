@@ -149,6 +149,66 @@ export async function gitCheckoutFile(cwd: string, hash: string, filePath: strin
   await execFileAsync('git', ['checkout', hash, '--', filePath], { cwd, timeout: 60_000 });
 }
 
+/** Pull file contents at `hash` into working tree; does not move HEAD (for A/B/main compare). */
+export async function gitCheckoutFiles(cwd: string, hash: string, filePaths: string[]): Promise<void> {
+  const paths = filePaths.filter(Boolean);
+  if (!paths.length) throw new Error('无文件路径');
+  await execFileAsync('git', ['checkout', hash, '--', ...paths], { cwd, timeout: 120_000 });
+}
+
+export async function gitCheckoutDetached(cwd: string, hash: string): Promise<void> {
+  try {
+    await execFileAsync('git', ['switch', '--detach', hash], { cwd, timeout: 60_000 });
+  } catch {
+    await execFileAsync('git', ['checkout', '--detach', hash], { cwd, timeout: 60_000 });
+  }
+}
+
+export async function gitSwitchBranch(cwd: string, branchName: string): Promise<void> {
+  try {
+    await execFileAsync('git', ['switch', branchName], { cwd, timeout: 60_000 });
+  } catch {
+    await execFileAsync('git', ['checkout', branchName], { cwd, timeout: 60_000 });
+  }
+}
+
+/** Return to branch before detached preview (`git switch -`). */
+export async function gitSwitchPrevious(cwd: string): Promise<string> {
+  let previous = '';
+  try {
+    const { stdout } = await execFileAsync('git', ['rev-parse', '--abbrev-ref', '@{-1}'], {
+      cwd,
+      timeout: 10_000,
+    });
+    previous = stdout.trim();
+  } catch {
+    /* ignore */
+  }
+  try {
+    await execFileAsync('git', ['switch', '-'], { cwd, timeout: 60_000 });
+  } catch {
+    await execFileAsync('git', ['checkout', '-'], { cwd, timeout: 60_000 });
+  }
+  return previous;
+}
+
+export async function gitBranchDisplay(cwd: string): Promise<{ label: string; detached: boolean }> {
+  try {
+    const { stdout } = await execFileAsync('git', ['branch', '--show-current'], { cwd, timeout: 10_000 });
+    const cur = stdout.trim();
+    if (cur) return { label: cur, detached: false };
+  } catch {
+    /* fall through */
+  }
+  try {
+    const { stdout } = await execFileAsync('git', ['rev-parse', '--short', 'HEAD'], { cwd, timeout: 10_000 });
+    const short = stdout.trim();
+    return { label: short ? `detached @ ${short}` : 'detached', detached: true };
+  } catch {
+    return { label: 'detached', detached: true };
+  }
+}
+
 export async function gitResetHard(cwd: string, hash: string): Promise<void> {
   await execFileAsync('git', ['reset', '--hard', hash], { cwd, timeout: 60_000 });
 }

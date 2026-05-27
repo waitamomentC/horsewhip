@@ -164,6 +164,9 @@ git remote get-url origin 2>/dev/null && git push
 | **还原越界文件** | 一键 `git checkout` 越界路径 |
 | 终端 `git commit` | 默认安装 **pre-commit** 钩子，越界会拒绝提交 |
 
+**重要**：钩子只挡 commit，**不会自动改回越界文件**。例如锁定 `A` 却改了 `B` → 提交失败时 **`B` 仍在工作区**。  
+应让 AI（见 [protocol/AGENTS.md](./protocol/AGENTS.md) §F.2）：**默认立即 revert 越界**（全自动不问）→ **边界内最多 3 轮重想** → 仍不行则 **请用户在泳道扩大边界**。
+
 未装钩子时：命令面板 → **Horsewhip: Install Git Pre-Commit Guard Hook**
 
 设置说明：[docs/boundary-guard.md](./docs/boundary-guard.md)
@@ -276,7 +279,7 @@ git log --all -200 --name-only --pretty=format:"%H|%P|%D|%an|%ad|%s"
 | 项 | 说明 |
 |----|------|
 | **默认分支** | **`main`**（`experiment/per-folder-version` 已合并进来） |
-| 插件版本 | `extension/package.json`，当前 **0.7.0**（打包时 patch 递增：`0.7.1`、`0.7.2` …） |
+| 插件版本 | `extension/package.json`，当前 **0.8.0**（正式版目标 **1.0.0**；打包时 patch 递增：`0.8.1`、`0.8.2` …） |
 | 协议 | [protocol/AGENTS.md](./protocol/AGENTS.md) v0.7 · 安装 URL 用 `main` |
 
 ---

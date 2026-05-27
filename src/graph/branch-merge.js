@@ -11,32 +11,112 @@ function branchSegmentFullyOnMainline(seg, parsed) {
   return seg.commits.every((c) => trunk.has(c.hash));
 }
 
-function branchMergeIsBehindTip(seg, parsed) {
+function segmentMergeCommit(seg, parsed) {
+  const h = seg?.mergeHash;
+  return h && parsed.commitMap[h] ? parsed.commitMap[h] : null;
+}
+
+/** Branch-side commit that was merged (2nd parent if on chain; else latest on chain at/before merge column). */
+function segmentTipAtMergeColumn(mergeCommit, chain) {
+  if (!mergeCommit || !chain?.length) return null;
+  const bp = mergeCommit.parents?.[1];
+  const chainSet = new Set(chain.map((c) => c.hash));
+  if (bp && chainSet.has(bp)) {
+    return chain.find((c) => c.hash === bp) || null;
+  }
+  const mergeCol = mergeCommit.versionIndex ?? mergeCommit.displayColumn ?? 0;
+  let best = null;
+  chain.forEach((c) => {
+    const col = c.versionIndex ?? c.displayColumn ?? 0;
+    if (col > mergeCol) return;
+    if (!best || col >= (best.versionIndex ?? best.displayColumn)) best = c;
+  });
+  return best;
+}
+
+/** Branch names cited in merge subject (e.g. "merge TA-only-test: …"). */
+function mergeCommitNamesBranchFromSubject(mergeCommit) {
+  const sub = (mergeCommit?.subject || '').trim();
+  const m = sub.match(/^merge\s+([^:(]+)/i);
+  if (!m) return [];
+  return m[1]
+    .split(/\s+and\s+|\s*,\s*/i)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function mergeCommitNamesBranch(mergeCommit, branchName) {
+  if (!mergeCommit || !branchName) return false;
+  if (hw.commitBelongsToBranch(mergeCommit, branchName)) return true;
+  const bn = hw.normalizeRefName(branchName).toLowerCase();
+  const sub = (mergeCommit.subject || '').toLowerCase();
+  if (!bn) return false;
+  const escaped = bn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (new RegExp(`merge\\s+${escaped}([\\s:]|$)`, 'i').test(sub)) return true;
+  if (sub.includes(`merge branch '${bn}'`) || sub.includes(`merge branch "${bn}"`)) return true;
+  return false;
+}
+
+function mergeCommitNamedBranches(mergeCommit, parsed) {
+  const names = new Set();
+  (parsed?.branchSegments || []).forEach((s) => {
+    const n = s.name || s.id;
+    if (n && hw.mergeCommitNamesBranch(mergeCommit, n)) names.add(n);
+  });
+  (hw.state?.gitBranches || parsed?.gitBranches || []).forEach((b) => {
+    if (b?.name && hw.mergeCommitNamesBranch(mergeCommit, b.name)) names.add(b.name);
+  });
+  hw.mergeCommitNamesBranchFromSubject(mergeCommit).forEach((n) => names.add(n));
+  return [...names];
+}
+
+/**
+ * Branch actually merged at this commit (not merely sharing fork a2d57ea with cousins).
+ * Named merges ("merge TA-only-test") only attach to that branch segment.
+ */
+function segmentParticipatedInMerge(seg, mergeCommit, chain, parsed) {
+  const commits = chain || seg?.commits || [];
+  const tipAtMerge = hw.segmentTipAtMergeColumn(mergeCommit, commits);
+  if (!tipAtMerge) return false;
+  const name = seg?.name || seg?.id;
+  const named = hw.mergeCommitNamedBranches(mergeCommit, parsed);
+  if (named.length) {
+    return Boolean(name && named.some((n) => n.toLowerCase() === String(name).toLowerCase()));
+  }
+  const bp = mergeCommit.parents?.[1];
+  if (!bp) return false;
+  const chainSet = new Set(commits.map((c) => c.hash));
+  return tipAtMerge.hash === bp || chainSet.has(bp);
+}
+
+function branchHasCommitsAfterMerge(seg, parsed) {
+  const mc = hw.segmentMergeCommit(seg, parsed);
   const tip = seg.commits[seg.commits.length - 1];
-  const mc = hw.segmentOwnsMerge(seg, parsed) ? parsed.commitMap[seg.mergeHash] : null;
+  if (!mc || !tip) return false;
+  const mergeCol = mc.versionIndex ?? mc.displayColumn ?? 0;
+  const tipCol = tip.versionIndex ?? tip.displayColumn ?? 0;
+  return tipCol > mergeCol;
+}
+
+/** Tip is strictly after merge on branch timeline (includes post-merge iteration from BC1 → C3). */
+function branchMergeIsBehindTip(seg, parsed) {
+  if (hw.branchHasCommitsAfterMerge(seg, parsed)) return true;
+  const tip = seg.commits[seg.commits.length - 1];
+  const mc = hw.segmentMergeCommit(seg, parsed);
   if (!tip || !mc) return false;
   return hw.isReachableFrom(mc.hash, tip.hash, parsed.commitMap)
     && !hw.isReachableFrom(tip.hash, mc.hash, parsed.commitMap);
 }
 
 function branchTipAtMerge(seg, parsed) {
-  const mc = hw.segmentOwnsMerge(seg, parsed) ? parsed.commitMap[seg.mergeHash] : null;
-  if (mc?.parents?.length >= 2) {
-    const p = parsed.commitMap[mc.parents[1]];
-    if (p) return p;
-  }
-  if (!hw.branchMergeIsBehindTip(seg, parsed)) {
-    return seg.commits[seg.commits.length - 1] || null;
-  }
-  const mergeCol = mc?.versionIndex ?? mc?.displayColumn;
-  if (mergeCol == null) return seg.commits[seg.commits.length - 1] || null;
-  let best = null;
-  seg.commits.forEach((c) => {
-    const col = c.versionIndex ?? c.displayColumn;
-    if (col > mergeCol) return;
-    if (!best || col > (best.versionIndex ?? best.displayColumn)) best = c;
-  });
-  return best || seg.commits[seg.commits.length - 1] || null;
+  const mc = hw.segmentMergeCommit(seg, parsed);
+  if (!mc) return seg.commits[seg.commits.length - 1] || null;
+  const atMerge = hw.segmentTipAtMergeColumn(mc, seg.commits);
+  if (atMerge) return atMerge;
+  const bp = mc.parents?.[1] && parsed.commitMap[mc.parents[1]];
+  const chainSet = new Set(seg.commits.map((c) => c.hash));
+  if (bp && chainSet.has(bp.hash)) return bp;
+  return seg.commits[seg.commits.length - 1] || null;
 }
 
 function coMergeLookupTip(seg, parsed) {
@@ -47,7 +127,6 @@ function coMergeLookupTip(seg, parsed) {
 
 function findCoMergeLanding(seg, parsed) {
   if (seg.mergeHash && parsed.commitMap[seg.mergeHash]) return null;
-  if (hw.branchSegmentFrozenMerge(seg, parsed)) return null;
   const tip = hw.coMergeLookupTip(seg, parsed);
   if (!tip) return null;
   let best = null;
@@ -56,7 +135,7 @@ function findCoMergeLanding(seg, parsed) {
     if (!parsed.mainlineSet.has(c.hash)) return;
     const branchParent = c.parents[1];
     if (!branchParent) return;
-    if (!hw.segmentOwnsMergeCommit(seg, c, seg.commits, parsed)) return;
+    if (!hw.segmentParticipatedInMerge(seg, c, seg.commits, parsed)) return;
     const col = c.versionIndex ?? c.displayColumn;
     if (!best || col < best.column) best = { commit: c, column: col };
   });
@@ -64,7 +143,7 @@ function findCoMergeLanding(seg, parsed) {
 }
 
 function branchSegmentJoinColumn(seg, parsed) {
-  const mc = hw.segmentOwnsMerge(seg, parsed) ? parsed.commitMap[seg.mergeHash] : null;
+  const mc = hw.segmentMergeCommit(seg, parsed);
   if (mc && mc.parents.length >= 2) {
     return mc.versionIndex ?? mc.displayColumn;
   }
@@ -74,48 +153,44 @@ function branchSegmentJoinColumn(seg, parsed) {
   return tip ? (tip.versionIndex ?? tip.displayColumn) : null;
 }
 
-/** True when this segment (not a cousin branch) is what the merge commit brought in. */
+/**
+ * Strict: merge commit's 2nd parent is on this chain (single-branch merge).
+ * For graph arcs use segmentParticipatedInMerge — dual merge often lists only one parent tip.
+ */
 function segmentOwnsMergeCommit(seg, mergeCommit, chain, parsed) {
   if (!mergeCommit?.parents || mergeCommit.parents.length < 2) return false;
-  const bp = mergeCommit.parents[1];
-  const chainSet = new Set((chain || seg.commits || []).map((c) => c.hash));
-  if (!chainSet.has(bp)) return false;
   const commits = chain || seg.commits || [];
-  const tip = commits[commits.length - 1];
-  if (tip && bp === tip.hash) return true;
-  const mergeCol = mergeCommit.versionIndex ?? mergeCommit.displayColumn ?? 0;
-  let tipAtMerge = null;
-  commits.forEach((c) => {
-    const col = c.versionIndex ?? c.displayColumn ?? 0;
-    if (col > mergeCol) return;
-    if (!tipAtMerge || col >= (tipAtMerge.versionIndex ?? tipAtMerge.displayColumn)) tipAtMerge = c;
-  });
-  if (tipAtMerge && bp === tipAtMerge.hash) return true;
-  const name = seg?.name || seg?.id;
-  if (!name) return false;
-  if (hw.commitBelongsToBranch(mergeCommit, name)) return true;
+  const tipAtMerge = hw.segmentTipAtMergeColumn(mergeCommit, commits);
+  if (!tipAtMerge) return false;
+  const bp = mergeCommit.parents[1];
+  const chainSet = new Set(commits.map((c) => c.hash));
+  if (chainSet.has(bp) || tipAtMerge.hash === bp) return true;
   const bpCommit = parsed.commitMap[bp];
-  return Boolean(bpCommit && hw.commitBelongsToBranch(bpCommit, name));
+  if (bpCommit && hw.isReachableFrom(tipAtMerge.hash, bp, parsed.commitMap)) return true;
+  if (bpCommit && hw.isReachableFrom(bp, tipAtMerge.hash, parsed.commitMap)) return true;
+  return false;
 }
 
 function segmentOwnsMerge(seg, parsed) {
-  const mc = seg.mergeHash && parsed.commitMap[seg.mergeHash];
+  const mc = hw.segmentMergeCommit(seg, parsed);
   if (!mc) return false;
-  return hw.segmentOwnsMergeCommit(seg, mc, seg.commits, parsed);
+  return hw.segmentParticipatedInMerge(seg, mc, seg.commits, parsed);
 }
 
-function shouldDrawMergeIntoParent(seg, parsed) {
-  if (hw.segmentOwnsMerge(seg, parsed)) {
-    return !hw.branchSegmentFrozenMerge(seg, parsed);
-  }
-  if (hw.branchSegmentFrozenMerge(seg, parsed)) return false;
+/** Whether this segment has a merge landing on the parent lane (incl. after branch continued past merge). */
+function branchSegmentHasHistoricalMerge(seg, parsed) {
+  if (hw.segmentOwnsMerge(seg, parsed)) return true;
   if (hw.findCoMergeLanding(seg, parsed)) return true;
   if (hw.branchSegmentFullyOnMainline(seg, parsed)) return true;
   return false;
 }
 
+function shouldDrawMergeIntoParent(seg, parsed) {
+  return hw.branchSegmentHasHistoricalMerge(seg, parsed);
+}
+
 function branchSegmentLandingCommit(seg, parsed) {
-  const mc = hw.segmentOwnsMerge(seg, parsed) ? parsed.commitMap[seg.mergeHash] : null;
+  const mc = hw.segmentMergeCommit(seg, parsed);
   if (mc) return mc;
   const co = hw.findCoMergeLanding(seg, parsed);
   if (co) return co.commit;
@@ -175,6 +250,7 @@ function ensureParentMergeLandingNode(nodes, bundlesOnLane, parentLane, seg, par
     isHead: landing.hash === head.hash,
     isHub: true,
     isMergeLanding: true,
+    isHistoricalMergeLanding: hw.branchSegmentFrozenMerge(seg, parsed),
     isFolderAggregate: parentLane.type === 'folder' && !parentLane.isHeader,
     isBranchLane: false,
     branchName: seg.name,
@@ -207,6 +283,13 @@ function ensureParentMergeLandingNode(nodes, bundlesOnLane, parentLane, seg, par
 Object.assign(hw, {
   segmentTouchesLane,
   branchSegmentFullyOnMainline,
+  segmentMergeCommit,
+  segmentTipAtMergeColumn,
+  mergeCommitNamesBranchFromSubject,
+  mergeCommitNamesBranch,
+  mergeCommitNamedBranches,
+  segmentParticipatedInMerge,
+  branchHasCommitsAfterMerge,
   branchMergeIsBehindTip,
   branchTipAtMerge,
   coMergeLookupTip,
@@ -214,6 +297,7 @@ Object.assign(hw, {
   branchSegmentJoinColumn,
   segmentOwnsMergeCommit,
   segmentOwnsMerge,
+  branchSegmentHasHistoricalMerge,
   shouldDrawMergeIntoParent,
   branchSegmentLandingCommit,
   mergeLaneVersionOnParent,

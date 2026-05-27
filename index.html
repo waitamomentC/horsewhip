@@ -156,22 +156,7 @@
       </header>
       <section class="modal__section">
         <h3 class="modal__section-title">constraint</h3>
-        <pre class="modal__code" id="modal-constraint"></pre>
-        <button type="button" class="btn btn--solid" id="btn-copy-constraint">copy</button>
-      </section>
-      <section class="modal__section">
-        <h3 class="modal__section-title">rollback</h3>
-        <p class="modal__label">① file only</p>
-        <pre class="modal__code" id="modal-cmd-file"></pre>
-        <button type="button" class="btn" id="btn-copy-checkout">copy checkout</button>
-        <p class="modal__label modal__label--danger">② reset entire repo</p>
-        <button type="button" class="btn" id="btn-toggle-reset">confirm</button>
-        <div class="rollback-danger" id="rollback-danger" hidden>
-          <label for="reset-confirm">type RESET</label>
-          <input type="text" id="reset-confirm" class="input-inline" placeholder="RESET" autocomplete="off">
-          <pre class="modal__code" id="modal-cmd-reset"></pre>
-          <button type="button" class="btn btn--danger" id="btn-copy-reset" disabled>copy reset --hard</button>
-        </div>
+        <pre class="modal__code modal__code--constraint" id="modal-constraint"></pre>
       </section>
     </div>
   </div>

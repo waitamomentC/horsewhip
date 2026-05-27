@@ -79,14 +79,12 @@ export function buildTimelineHtml(
   <meta http-equiv="Content-Security-Policy" content="${csp(webview)}">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="horsewhip-whip-audio" content="${u('whip-crack.mp3')}">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
   <link rel="stylesheet" href="${u('style.css')}">
   <style>
     body.hw-plugin .header, body.hw-plugin .paste-drop { display: none !important; }
     html, body.hw-plugin {
+      font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
       height: 100%; margin: 0; overflow: hidden;
       display: flex; flex-direction: column;
     }
@@ -313,6 +311,12 @@ export function buildTimelineHtml(
     .plugin-bar__actions .plugin-bar__btn { margin-left: 0; }
     .plugin-bar__btn--primary { background: #6d7ce8; border-color: transparent; color: #fff; }
     .plugin-bar__btn--primary:hover { filter: brightness(1.08); color: #fff; }
+    .plugin-bar__btn--accent {
+      background: rgba(251, 146, 60, 0.22);
+      border-color: rgba(251, 146, 60, 0.55);
+      color: #fdba74;
+    }
+    .plugin-bar__btn--accent:hover { background: rgba(251, 146, 60, 0.35); color: #ffedd5; }
     body.hw-plugin .hw-boundary .plugin-bar__btn { margin-left: 0; }
     .hw-whip-btn {
       display: inline-flex; align-items: center; justify-content: center;
@@ -441,6 +445,7 @@ export function buildTimelineHtml(
       <button type="button" class="plugin-bar__btn" id="btn-guard-revert" hidden title="还原越界文件到 HEAD">还原越界</button>
     </span>
     <div class="plugin-bar__actions">
+      <button type="button" class="plugin-bar__btn plugin-bar__btn--accent" id="btn-restore-env" hidden title="从预览 commit 回到之前的分支（git switch -）">恢复工作区</button>
       <button type="button" class="plugin-bar__btn" id="btn-commit-open" hidden title="提交当前更改">提交</button>
       <button type="button" class="plugin-bar__btn" id="btn-open-github" hidden title="在浏览器打开 GitHub 仓库">GitHub</button>
       <button type="button" class="plugin-bar__btn" id="btn-remote-setup">发布</button>
@@ -495,7 +500,7 @@ export function buildTimelineHtml(
       <div class="graph-hint" id="graph-hint" hidden>
         <span class="graph-hint__item">首屏 HEAD</span>
         <span class="graph-hint__sep">·</span>
-        <span class="graph-hint__item">双击 rollback</span>
+        <span class="graph-hint__item">双击详情</span>
       </div>
       <div class="graph-zoom" id="graph-zoom" hidden>
         <button type="button" class="btn btn--icon hw-sound-btn" id="btn-whip-sound" title="关闭挥鞭音效" aria-pressed="false" aria-label="关闭挥鞭音效">
@@ -540,24 +545,10 @@ export function buildTimelineHtml(
       </header>
       <section class="modal__section">
         <h3 class="modal__section-title">constraint</h3>
-        <pre class="modal__code" id="modal-constraint"></pre>
-        <button type="button" class="btn btn--solid" id="btn-copy-constraint">copy</button>
+        <pre class="modal__code modal__code--constraint" id="modal-constraint"></pre>
       </section>
-      <section class="modal__section">
-        <h3 class="modal__section-title">rollback</h3>
-        <p class="modal__label">① file only</p>
-        <pre class="modal__code" id="modal-cmd-file"></pre>
-        <button type="button" class="btn" id="btn-copy-checkout">copy checkout</button>
-        <button type="button" class="btn btn--solid modal__btn-run" id="btn-run-checkout">执行 checkout</button>
-        <p class="modal__label modal__label--danger">② reset entire repo</p>
-        <button type="button" class="btn" id="btn-toggle-reset">confirm</button>
-        <div class="rollback-danger" id="rollback-danger" hidden>
-          <label for="reset-confirm">type RESET</label>
-          <input type="text" id="reset-confirm" class="input-inline" placeholder="RESET" autocomplete="off">
-          <pre class="modal__code" id="modal-cmd-reset"></pre>
-          <button type="button" class="btn" id="btn-copy-reset">copy reset</button>
-          <button type="button" class="btn btn--danger modal__btn-run" id="btn-run-reset" disabled>执行 reset --hard</button>
-        </div>
+      <section class="modal__section modal__section--actions">
+        <button type="button" class="btn btn--solid btn--block modal__btn-run" id="btn-run-preview">检出并运行</button>
       </section>
     </div>
   </div>
@@ -652,14 +643,29 @@ export function buildTimelineHtml(
     </div>
   </div>
   <div class="tooltip" id="tooltip" hidden></div>
+  <script>
+    window.addEventListener('error', function (e) {
+      var t = e && e.target;
+      if (t && t.tagName === 'SCRIPT' && t.src) {
+        window.__horsewhipBootError = '脚本加载失败: ' + t.src;
+      }
+    }, true);
+  </script>
   <script src="${u('d3.min.js')}"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
   <script src="${u('demo-data.js')}"></script>
   <script src="${u('script.js')}"></script>
+  <script>
+    if (typeof d3 === 'undefined' && !window.__horsewhipBootError) {
+      window.__horsewhipBootError = 'd3.min.js 未加载，请确认 extension/media/d3.min.js 存在并已 npm run build:extension';
+    } else if (!window.HorsewhipApp && !window.__horsewhipBootError) {
+      window.__horsewhipBootError = 'script.js 未执行（文件缺失或运行时报错）。仓库根目录执行 npm run build:extension 后 F5';
+    }
+  </script>
   <script src="${u('panel-bridge.js')}"></script>
   <script src="${u('remote-wizard.js')}"></script>
   <script src="${u('terminal-bridge.js')}"></script>
+  <script async src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+  <script async src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
 </body>
 </html>`;
 }

@@ -2,7 +2,7 @@
   "name": "horsewhip",
   "displayName": "Horsewhip",
   "description": "Git file timeline · GitHub SSH publish · workspace git only",
-  "version": "0.7.1",
+  "version": "0.8.2",
   "publisher": "horsewhip",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -136,6 +136,31 @@
           "type": "boolean",
           "default": true,
           "description": "打开工作区时自动安装 .git/hooks/pre-commit 守门脚本。"
+        },
+        "horsewhip.guard.revertOnCommitBlock": {
+          "type": "string",
+          "enum": [
+            "prompt",
+            "always",
+            "never"
+          ],
+          "default": "always",
+          "enumDescriptions": [
+            "人在回路：commit 被拦后弹窗选择（适合用户坐在 IDE 前）",
+            "全自动默认：被拦后立即还原越界文件（适合 vibe agent，不问用户）",
+            "仅拦截 commit，不还原（不推荐）"
+          ],
+          "description": "commit 因越界失败后是否还原工作区。全自动代理请保持 always。"
+        },
+        "horsewhip.guard.notifyOnCommitBlock": {
+          "type": "boolean",
+          "default": false,
+          "description": "always 模式下仍弹出通知条（默认 false，仅状态栏 + 顶栏，少打断全自动 agent）。"
+        },
+        "horsewhip.guard.offerCorrectionAfterRevert": {
+          "type": "boolean",
+          "default": true,
+          "description": "还原越界文件后，自动把「边界内重想」纠正文案插入 Chat。"
         }
       }
     },
@@ -172,7 +197,10 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run build:all",
+    "build:web": "cd .. && npm run build:web",
+    "build:all": "npm run build:web && npm run sync-assets && npm run compile",
+    "build:extension": "npm run build:all",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "sync-assets": "node ./scripts/sync-web-assets.js",

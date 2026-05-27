@@ -260,8 +260,13 @@ function buildLaneSlice(parsed, catalog, laneIndex) {
       if (drawMerge && mergeV != null && branchLane.laneIndex === laneIndex
         && lastBranch
         && (hw.columnInWindow(mergeV) || hw.columnInWindow(lastBranch.displayColumn))) {
-        const histMerge = hw.branchMergeIsBehindTip(seg, parsed);
-        const mergeSource = histMerge ? hw.branchTipAtMerge(seg, parsed) : lastBranch.commit;
+        const historical = hw.branchSegmentFrozenMerge(seg, parsed);
+        const histMerge = historical || hw.branchMergeIsBehindTip(seg, parsed);
+        let mergeSource = histMerge ? hw.branchTipAtMerge(seg, parsed) : lastBranch.commit;
+        if (mergeSource && mergeV != null) {
+          const srcCol = mergeSource.versionIndex ?? mergeSource.displayColumn;
+          if (srcCol > mergeV) mergeSource = hw.branchTipAtMerge(seg, parsed);
+        }
         const mergeFromCol = mergeSource
           ? (mergeSource.versionIndex ?? mergeSource.displayColumn)
           : lastBranch.displayColumn;
@@ -275,7 +280,8 @@ function buildLaneSlice(parsed, catalog, laneIndex) {
           y2: hw.laneCenterY(parentLane.laneIndex),
           parentLane,
           branchLane,
-          active: true,
+          active: !historical,
+          historical,
         });
       }
     });

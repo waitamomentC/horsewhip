@@ -70,6 +70,8 @@ export function computeBoundaryGuard(allowlist: string[], actual: string[]): Bou
   };
 }
 
+const BOUNDARY_RETRY_ROUNDS = 3;
+
 export function buildCorrectionPrompt(allowed: string[], overreach: string[]): string {
   const allowText = allowed.map(formatAllowLabel).join(', ');
   const overText = overreach.join(', ');
@@ -81,7 +83,14 @@ export function buildCorrectionPrompt(allowed: string[], overreach: string[]): s
 检测到额外改动：${overText}
 ${revertHint}，仅保留允许范围内的修改。
 
-若这些额外文件确属必要，请先停下并向用户说明理由，待确认后再继续。`;
+全自动代理（默认）：不要问用户「要不要还原」——立即执行 git checkout HEAD -- 复原越界路径。
+
+然后仅在边界内重新设计方案（不要继续改动越界文件），最多尝试 ${BOUNDARY_RETRY_ROUNDS} 轮不同思路。
+若 ${BOUNDARY_RETRY_ROUNDS} 轮后仍无法完成用户目标，停止改代码，向用户说明：
+- 已尝试的方向；
+- 必须在 horsewhip 泳道扩大边界（选更大文件夹/节点）或用户明确授权后，才能改边界外路径。
+
+禁止：保留越界改动、git commit --no-verify、未经用户扩边界仍改越界文件。`;
 }
 
 export function buildNoBoundaryHint(): string {

@@ -7,6 +7,11 @@ import {
 } from './boundaryGuard';
 import { getEffectiveAllowlist } from './boundaryAllowlist';
 import { isHorsewhipPreCommitHookInstalled } from './boundaryGitHook';
+import {
+  clearCommitBlockedMarker,
+  readCommitBlockedMarker,
+  writeCommitBlockedMarker,
+} from './boundaryPersist';
 import { fetchWorkingTreeChangedFiles, gitRestorePaths } from './gitRunner';
 import { insertTextIntoChat } from './chatInsert';
 
@@ -14,6 +19,8 @@ let statusBar: vscode.StatusBarItem | undefined;
 let lastResult: BoundaryGuardResult | null = null;
 let saveDebounce: ReturnType<typeof setTimeout> | undefined;
 let notifyWebview: ((payload: object) => void) | undefined;
+let lastBlockedPromptAt = 0;
+const BLOCK_PROMPT_DEBOUNCE_MS = 4000;
 
 export function setGuardWebviewNotifier(fn: ((payload: object) => void) | undefined): void {
   notifyWebview = fn;
@@ -29,19 +36,30 @@ export type CommitGuardVerdict = {
   reason?: string;
 };
 
+export type RevertOnCommitBlockMode = 'prompt' | 'always' | 'never';
+
 function guardConfig(): {
   onSave: boolean;
   mode: 'warn' | 'strict';
   blockCommit: boolean;
   blockCommitWithoutBoundary: boolean;
+  revertOnCommitBlock: RevertOnCommitBlockMode;
+  offerCorrectionAfterRevert: boolean;
+  notifyOnCommitBlock: boolean;
 } {
   const cfg = vscode.workspace.getConfiguration('horsewhip.guard');
   const mode = cfg.get<'warn' | 'strict'>('mode', 'warn');
+  const revertRaw = cfg.get<string>('revertOnCommitBlock', 'always');
+  const revertOnCommitBlock: RevertOnCommitBlockMode =
+    revertRaw === 'prompt' || revertRaw === 'never' ? revertRaw : 'always';
   return {
     onSave: cfg.get<boolean>('onSave', true),
     mode: mode === 'strict' ? 'strict' : 'warn',
     blockCommit: cfg.get<boolean>('blockCommit', true),
     blockCommitWithoutBoundary: cfg.get<boolean>('blockCommitWithoutBoundary', true),
+    revertOnCommitBlock,
+    offerCorrectionAfterRevert: cfg.get<boolean>('offerCorrectionAfterRevert', true),
+    notifyOnCommitBlock: cfg.get<boolean>('notifyOnCommitBlock', false),
   };
 }
 
@@ -106,38 +124,187 @@ export async function evaluateCommitGuard(workspaceRoot: string): Promise<Commit
   return { allowed: true, result };
 }
 
-/** Block commit when overreach; shows actions. Returns true if commit may continue. */
-export async function assertCommitAllowed(workspaceRoot: string): Promise<boolean> {
-  const verdict = await evaluateCommitGuard(workspaceRoot);
-  if (verdict.allowed) return true;
+function overreachPreview(paths: string[], max = 6): string {
+  return paths.slice(0, max).join(', ') + (paths.length > max ? ` …+${paths.length - max}` : '');
+}
 
+function notifyCommitBlockedUi(
+  result: BoundaryGuardResult,
+  reason: string,
+  source: 'panel' | 'pre-commit',
+): void {
+  notifyWebview?.({
+    type: 'commitBlocked',
+    source,
+    reason,
+    hasBoundary: result.hasBoundary,
+    allowed: result.allowed,
+    overreach: result.overreach,
+    prompt: result.overreach.length
+      ? buildCorrectionPrompt(result.allowed, result.overreach)
+      : '',
+  });
+  pushGuardStatus(result);
+}
+
+/** After revert: re-check guard; optionally insert correction for AI. */
+async function finishRevertFlow(
+  workspaceRoot: string,
+  before: BoundaryGuardResult,
+  options: { quiet?: boolean } = {},
+): Promise<boolean> {
+  const quiet =
+    options.quiet ??
+    (guardConfig().revertOnCommitBlock === 'always' && !guardConfig().notifyOnCommitBlock);
+  const again = await evaluateCommitGuard(workspaceRoot);
+  if (again.allowed) {
+    await clearCommitBlockedMarker(workspaceRoot);
+    if (!quiet) {
+      vscode.window.showInformationMessage(
+        '越界文件已复原，工作区仅剩边界内改动。请重新提交，并让 AI 在边界内重想方案。',
+      );
+    }
+    return true;
+  }
+  if (quiet) return false;
+  if (before.overreach.length && again.result.overreach.length) {
+    vscode.window.showWarningMessage(
+      `仍有越界：${overreachPreview(again.result.overreach)}。可再次还原或检查守门。`,
+    );
+  } else if (!again.result.hasBoundary) {
+    vscode.window.showWarningMessage('尚未在泳道划定边界，提交仍会被拦截。');
+  }
+  return false;
+}
+
+/**
+ * Commit blocked (panel or hook). Revert overreach files when configured; never leave dirty overreach behind.
+ * Returns true only if guard passes after optional revert (caller may retry commit).
+ */
+export async function handleCommitBlocked(
+  workspaceRoot: string,
+  verdict: CommitGuardVerdict,
+  options: { source?: 'panel' | 'pre-commit'; quiet?: boolean } = {},
+): Promise<boolean> {
+  const source = options.source ?? 'panel';
   const r = verdict.result;
-  const preview = r.overreach.slice(0, 6).join(', ')
-    + (r.overreach.length > 6 ? ` …+${r.overreach.length - 6}` : '');
+  await writeCommitBlockedMarker(workspaceRoot, {
+    source,
+    allowed: r.allowed,
+    overreach: r.overreach,
+  });
+  notifyCommitBlockedUi(r, verdict.reason ?? 'commit 已拦截', source);
+
+  const { revertOnCommitBlock, offerCorrectionAfterRevert } = guardConfig();
+
+  if (r.overreach.length && revertOnCommitBlock === 'always') {
+    await revertOverreachFiles(workspaceRoot, r, { skipConfirm: true });
+    if (offerCorrectionAfterRevert) await insertCorrectionPrompt(r);
+    return finishRevertFlow(workspaceRoot, r, { quiet: !guardConfig().notifyOnCommitBlock });
+  }
+
+  if (options.quiet) return false;
+
+  const detail =
+    r.overreach.length > 0
+      ? `拦截只阻止了 commit，以下越界文件仍留在工作区，必须复原后再提交：\n${r.overreach.join('\n')}`
+      : verdict.reason ?? '请先划定边界或清除越界改动。';
+
   const actions: string[] = [];
   if (r.overreach.length) {
-    actions.push('还原越界文件', '插入纠正到 Chat');
+    actions.push('还原越界文件（推荐）', '插入纠正到 Chat');
+  } else {
+    actions.push('去泳道划边界');
   }
   actions.push('检查越界');
+
   const pick = await vscode.window.showErrorMessage(
-    verdict.reason || 'horsewhip 守门：commit 已拦截',
+    `horsewhip：${verdict.reason ?? 'commit 已拦截'}\n\n${detail}`,
     { modal: true },
     ...actions,
   );
 
-  if (pick === '还原越界文件' && r.overreach.length) {
+  if (pick === '还原越界文件（推荐）' && r.overreach.length) {
     await revertOverreachFiles(workspaceRoot, r);
-    const again = await evaluateCommitGuard(workspaceRoot);
-    if (again.allowed) {
-      vscode.window.showInformationMessage('越界已清除，可以重新提交。');
-      return true;
-    }
-    vscode.window.showWarningMessage('仍有越界或未划定边界，commit 继续拦截。');
-    return false;
+    if (offerCorrectionAfterRevert) await insertCorrectionPrompt(r);
+    return finishRevertFlow(workspaceRoot, r);
   }
   if (pick === '插入纠正到 Chat') await insertCorrectionPrompt(r);
   if (pick === '检查越界') await runBoundaryGuardCheck(workspaceRoot);
+  if (pick === '去泳道划边界') {
+    void vscode.commands.executeCommand('horsewhip.showTimeline');
+  }
   return false;
+}
+
+/** Block commit when overreach; shows actions. Returns true if commit may continue (after revert). */
+export async function assertCommitAllowed(workspaceRoot: string): Promise<boolean> {
+  const verdict = await evaluateCommitGuard(workspaceRoot);
+  if (verdict.allowed) {
+    await clearCommitBlockedMarker(workspaceRoot);
+    return true;
+  }
+  return handleCommitBlocked(workspaceRoot, verdict, { source: 'panel' });
+}
+
+/**
+ * React to `.git/horsewhip/commit-blocked.json` (written by pre-commit hook or panel).
+ * Call after git activity or when opening the workspace.
+ */
+export async function processCommitBlockedMarker(workspaceRoot: string): Promise<void> {
+  const marker = await readCommitBlockedMarker(workspaceRoot);
+  if (!marker) return;
+
+  const now = Date.now();
+  if (now - lastBlockedPromptAt < BLOCK_PROMPT_DEBOUNCE_MS) return;
+  lastBlockedPromptAt = now;
+
+  const allowlist = await getEffectiveAllowlist(workspaceRoot);
+  const actual = await fetchWorkingTreeChangedFiles(workspaceRoot);
+  const result = computeBoundaryGuard(allowlist, actual);
+  lastResult = result;
+  updateStatusBar(result);
+
+  if (result.ok) {
+    await clearCommitBlockedMarker(workspaceRoot);
+    return;
+  }
+
+  const verdict: CommitGuardVerdict = {
+    allowed: false,
+    result,
+    reason:
+      marker.overreach.length > 0
+        ? `上次 commit 被拦截，越界文件仍在工作区：${overreachPreview(marker.overreach)}`
+        : '上次 commit 被拦截，请先划定边界。',
+  };
+
+  notifyCommitBlockedUi(result, verdict.reason!, marker.source);
+
+  const { revertOnCommitBlock } = guardConfig();
+  if (marker.overreach.length && revertOnCommitBlock === 'always') {
+    await revertOverreachFiles(workspaceRoot, result, { skipConfirm: true });
+    if (guardConfig().offerCorrectionAfterRevert) await insertCorrectionPrompt(result);
+    await finishRevertFlow(workspaceRoot, result, {
+      quiet: !guardConfig().notifyOnCommitBlock,
+    });
+    return;
+  }
+
+  const pick = await vscode.window.showWarningMessage(
+    `horsewhip：${verdict.reason}\n\n请还原越界文件，并让 AI 仅在边界内重想方案（见 protocol/AGENTS.md §F.2–F.3）。`,
+    { modal: false },
+    '还原越界文件',
+    '插入纠正到 Chat',
+    '稍后处理',
+  );
+  if (pick === '还原越界文件') {
+    await revertOverreachFiles(workspaceRoot, result);
+    if (guardConfig().offerCorrectionAfterRevert) await insertCorrectionPrompt(result);
+    await finishRevertFlow(workspaceRoot, result);
+  } else if (pick === '插入纠正到 Chat') {
+    await insertCorrectionPrompt(result);
+  }
 }
 
 function pushGuardStatus(payload: BoundaryGuardResult | Record<string, unknown>): void {
@@ -277,22 +444,29 @@ export async function copyCorrectionPrompt(result?: BoundaryGuardResult): Promis
 export async function revertOverreachFiles(
   workspaceRoot: string,
   result?: BoundaryGuardResult,
+  options: { skipConfirm?: boolean } = {},
 ): Promise<void> {
   const r = result ?? lastResult;
   if (!r?.overreach.length) {
     vscode.window.showInformationMessage('当前无越界文件可还原。');
     return;
   }
-  const confirm = await vscode.window.showWarningMessage(
-    `将还原以下越界路径（tracked → checkout HEAD，未跟踪 → 删除）：\n${r.overreach.join('\n')}`,
-    { modal: true },
-    '确认还原',
-  );
-  if (confirm !== '确认还原') return;
+  if (!options.skipConfirm) {
+    const confirm = await vscode.window.showWarningMessage(
+      `将还原以下越界路径（tracked → checkout HEAD，未跟踪 → 删除）：\n${r.overreach.join('\n')}`,
+      { modal: true },
+      '确认还原',
+    );
+    if (confirm !== '确认还原') return;
+  }
   try {
     await gitRestorePaths(workspaceRoot, r.overreach);
-    vscode.window.showInformationMessage(`已还原 ${r.overreach.length} 个越界路径`);
+    if (!options.skipConfirm) {
+      vscode.window.showInformationMessage(`已还原 ${r.overreach.length} 个越界路径`);
+    }
     await runBoundaryGuardCheck(workspaceRoot, { silent: true });
+    const again = await evaluateCommitGuard(workspaceRoot);
+    if (again.allowed) await clearCommitBlockedMarker(workspaceRoot);
   } catch (err) {
     const text = err instanceof Error ? err.message : String(err);
     vscode.window.showErrorMessage(`还原失败：${text}`);
@@ -363,4 +537,9 @@ export function registerBoundaryGuard(context: vscode.ExtensionContext): void {
       scheduleSaveCheck(root);
     }),
   );
+
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (folder) {
+    void processCommitBlockedMarker(folder.uri.fsPath);
+  }
 }

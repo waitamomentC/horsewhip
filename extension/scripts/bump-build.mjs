@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Bump extension patch version (valid semver for VS Code / vsce).
- * 0.7.0 → 0.7.1 → 0.7.2 …
+ * 0.9.0 → 0.9.1 → 0.9.2 …
  * Run via: npm run bump:build (before package)
  */
 import fs from 'node:fs';
@@ -11,7 +11,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkgPath = path.resolve(__dirname, '../package.json');
 const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-const current = String(pkg.version || '0.7.0');
+const current = String(pkg.version || '0.9.0');
 
 /** @returns {{ major: number, minor: number, patch: number } | null} */
 function parseSemver(v) {
@@ -22,7 +22,7 @@ function parseSemver(v) {
 
 let parsed = parseSemver(current);
 
-// Legacy invalid four-part versions (e.g. 0.7.0.1 from an earlier script)
+// Legacy invalid four-part versions (e.g. 0.9.0.1 from an earlier script)
 if (!parsed) {
   const legacy = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(current);
   if (legacy) {
@@ -32,8 +32,8 @@ if (!parsed) {
 }
 
 if (!parsed) {
-  console.warn(`[bump-build] cannot parse "${current}", using 0.7.1`);
-  parsed = { major: 0, minor: 7, patch: 1 };
+  console.warn(`[bump-build] cannot parse "${current}", using 0.9.1`);
+  parsed = { major: 0, minor: 9, patch: 1 };
 } else {
   parsed.patch += 1;
 }

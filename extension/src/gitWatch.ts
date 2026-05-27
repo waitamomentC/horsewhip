@@ -7,6 +7,7 @@ export function watchGitRepository(cwd: string, onChange: () => void): vscode.Di
     new vscode.RelativePattern(root, '.git/HEAD'),
     new vscode.RelativePattern(root, '.git/logs/HEAD'),
     new vscode.RelativePattern(root, '.git/index'),
+    new vscode.RelativePattern(root, '.git/horsewhip/commit-blocked.json'),
   ];
 
   let timer: ReturnType<typeof setTimeout> | undefined;

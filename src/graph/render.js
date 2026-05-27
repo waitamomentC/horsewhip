@@ -421,6 +421,10 @@ async function bootstrapViewportRender(gen, options = {}) {
   hw.state.animateNext = false;
   hw.setGraphStreaming(true);
 
+  if (hw.isPluginHost() && hw.els.graphEmpty) {
+    hw.els.graphEmpty.classList.add('hidden');
+  }
+
   try {
     hw.state.laneSliceCache = new Map();
     const catalog = hw.buildLaneCatalog(hw.state.parsed);

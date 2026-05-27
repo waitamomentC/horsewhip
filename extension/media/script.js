@@ -182,15 +182,7 @@
     modalMeta: $("#modal-meta"),
     modalFile: $("#modal-file"),
     modalConstraint: $("#modal-constraint"),
-    modalCmdFile: $("#modal-cmd-file"),
-    modalCmdReset: $("#modal-cmd-reset"),
     modalClose: $("#modal-close"),
-    btnCopyConstraint: $("#btn-copy-constraint"),
-    btnCopyCheckout: $("#btn-copy-checkout"),
-    btnToggleReset: $("#btn-toggle-reset"),
-    rollbackDanger: $("#rollback-danger"),
-    resetConfirm: $("#reset-confirm"),
-    btnCopyReset: $("#btn-copy-reset"),
     tooltip: $("#tooltip"),
     boundaryBar: $("#hw-boundary"),
     boundaryCount: $("#hw-boundary-count"),
@@ -389,7 +381,10 @@
     if (!bn) return false;
     if ((commit.refs || []).some((r) => hw.normalizeRefName(r).toLowerCase() === bn)) return true;
     const sub = (commit.subject || "").toLowerCase();
-    return sub.includes(bn) || sub.includes(`on ${bn} branch`);
+    const escaped = bn.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`(^|\\s)${escaped}($|[\\s:])`, "i").test(sub)) return true;
+    if (new RegExp(`merge\\s+${escaped}([\\s:]|$)`, "i").test(sub)) return true;
+    return sub.includes(`on ${bn} branch`);
   }
   function hasBranchRef(commit) {
     if (!commit?.refs?.length) return false;
@@ -413,7 +408,7 @@
     const candidates = [];
     parsed.commits.forEach((c) => {
       if (c.parents.length < 2) return;
-      if (!hw.segmentOwnsMergeCommit(seg, c, chain, parsed)) return;
+      if (!hw.segmentParticipatedInMerge(seg, c, chain, parsed)) return;
       const mergeCol = c.versionIndex ?? c.displayColumn ?? 0;
       const allAfterMerge = chain.every((x) => {
         const col = x.versionIndex ?? x.displayColumn ?? 0;
@@ -458,7 +453,8 @@
       mergeGraphX: mergeHash ? commitMap[mergeHash]?.graphX ?? null : null,
       outOfLog: false
     });
-    seg.continued = hw.branchMergeIsBehindTip(seg, parsed) || !mergeHash && tip && !mainlineSet.has(tip);
+    const tipAtMerge = mergeHash ? hw.branchTipAtMerge(seg, parsed) : null;
+    seg.continued = hw.branchMergeIsBehindTip(seg, parsed) || hw.branchHasCommitsAfterMerge(seg, parsed) || mergeHash && tip && !mainlineSet.has(tip.hash) && tipAtMerge && tipAtMerge.hash !== tip.hash || !mergeHash && tip && !mainlineSet.has(tip.hash);
   }
   function enrichBranchSegmentsFromGitBranches(parsed, branches) {
     if (!parsed || !branches?.length) return;
@@ -910,37 +906,99 @@
     const trunk = parsed.mainlineSet;
     return seg.commits.every((c) => trunk.has(c.hash));
   }
-  function branchMergeIsBehindTip(seg, parsed) {
+  function segmentMergeCommit(seg, parsed) {
+    const h = seg?.mergeHash;
+    return h && parsed.commitMap[h] ? parsed.commitMap[h] : null;
+  }
+  function segmentTipAtMergeColumn(mergeCommit, chain) {
+    if (!mergeCommit || !chain?.length) return null;
+    const bp = mergeCommit.parents?.[1];
+    const chainSet = new Set(chain.map((c) => c.hash));
+    if (bp && chainSet.has(bp)) {
+      return chain.find((c) => c.hash === bp) || null;
+    }
+    const mergeCol = mergeCommit.versionIndex ?? mergeCommit.displayColumn ?? 0;
+    let best = null;
+    chain.forEach((c) => {
+      const col = c.versionIndex ?? c.displayColumn ?? 0;
+      if (col > mergeCol) return;
+      if (!best || col >= (best.versionIndex ?? best.displayColumn)) best = c;
+    });
+    return best;
+  }
+  function mergeCommitNamesBranchFromSubject(mergeCommit) {
+    const sub = (mergeCommit?.subject || "").trim();
+    const m = sub.match(/^merge\s+([^:(]+)/i);
+    if (!m) return [];
+    return m[1].split(/\s+and\s+|\s*,\s*/i).map((s) => s.trim()).filter(Boolean);
+  }
+  function mergeCommitNamesBranch(mergeCommit, branchName) {
+    if (!mergeCommit || !branchName) return false;
+    if (hw.commitBelongsToBranch(mergeCommit, branchName)) return true;
+    const bn = hw.normalizeRefName(branchName).toLowerCase();
+    const sub = (mergeCommit.subject || "").toLowerCase();
+    if (!bn) return false;
+    const escaped = bn.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (new RegExp(`merge\\s+${escaped}([\\s:]|$)`, "i").test(sub)) return true;
+    if (sub.includes(`merge branch '${bn}'`) || sub.includes(`merge branch "${bn}"`)) return true;
+    return false;
+  }
+  function mergeCommitNamedBranches(mergeCommit, parsed) {
+    const names = /* @__PURE__ */ new Set();
+    (parsed?.branchSegments || []).forEach((s) => {
+      const n = s.name || s.id;
+      if (n && hw.mergeCommitNamesBranch(mergeCommit, n)) names.add(n);
+    });
+    (hw.state?.gitBranches || parsed?.gitBranches || []).forEach((b) => {
+      if (b?.name && hw.mergeCommitNamesBranch(mergeCommit, b.name)) names.add(b.name);
+    });
+    hw.mergeCommitNamesBranchFromSubject(mergeCommit).forEach((n) => names.add(n));
+    return [...names];
+  }
+  function segmentParticipatedInMerge(seg, mergeCommit, chain, parsed) {
+    const commits = chain || seg?.commits || [];
+    const tipAtMerge = hw.segmentTipAtMergeColumn(mergeCommit, commits);
+    if (!tipAtMerge) return false;
+    const name = seg?.name || seg?.id;
+    const named = hw.mergeCommitNamedBranches(mergeCommit, parsed);
+    if (named.length) {
+      return Boolean(name && named.some((n) => n.toLowerCase() === String(name).toLowerCase()));
+    }
+    const bp = mergeCommit.parents?.[1];
+    if (!bp) return false;
+    const chainSet = new Set(commits.map((c) => c.hash));
+    return tipAtMerge.hash === bp || chainSet.has(bp);
+  }
+  function branchHasCommitsAfterMerge(seg, parsed) {
+    const mc = hw.segmentMergeCommit(seg, parsed);
     const tip = seg.commits[seg.commits.length - 1];
-    const mc = hw.segmentOwnsMerge(seg, parsed) ? parsed.commitMap[seg.mergeHash] : null;
+    if (!mc || !tip) return false;
+    const mergeCol = mc.versionIndex ?? mc.displayColumn ?? 0;
+    const tipCol = tip.versionIndex ?? tip.displayColumn ?? 0;
+    return tipCol > mergeCol;
+  }
+  function branchMergeIsBehindTip(seg, parsed) {
+    if (hw.branchHasCommitsAfterMerge(seg, parsed)) return true;
+    const tip = seg.commits[seg.commits.length - 1];
+    const mc = hw.segmentMergeCommit(seg, parsed);
     if (!tip || !mc) return false;
     return hw.isReachableFrom(mc.hash, tip.hash, parsed.commitMap) && !hw.isReachableFrom(tip.hash, mc.hash, parsed.commitMap);
   }
   function branchTipAtMerge(seg, parsed) {
-    const mc = hw.segmentOwnsMerge(seg, parsed) ? parsed.commitMap[seg.mergeHash] : null;
-    if (mc?.parents?.length >= 2) {
-      const p = parsed.commitMap[mc.parents[1]];
-      if (p) return p;
-    }
-    if (!hw.branchMergeIsBehindTip(seg, parsed)) {
-      return seg.commits[seg.commits.length - 1] || null;
-    }
-    const mergeCol = mc?.versionIndex ?? mc?.displayColumn;
-    if (mergeCol == null) return seg.commits[seg.commits.length - 1] || null;
-    let best = null;
-    seg.commits.forEach((c) => {
-      const col = c.versionIndex ?? c.displayColumn;
-      if (col > mergeCol) return;
-      if (!best || col > (best.versionIndex ?? best.displayColumn)) best = c;
-    });
-    return best || seg.commits[seg.commits.length - 1] || null;
+    const mc = hw.segmentMergeCommit(seg, parsed);
+    if (!mc) return seg.commits[seg.commits.length - 1] || null;
+    const atMerge = hw.segmentTipAtMergeColumn(mc, seg.commits);
+    if (atMerge) return atMerge;
+    const bp = mc.parents?.[1] && parsed.commitMap[mc.parents[1]];
+    const chainSet = new Set(seg.commits.map((c) => c.hash));
+    if (bp && chainSet.has(bp.hash)) return bp;
+    return seg.commits[seg.commits.length - 1] || null;
   }
   function coMergeLookupTip(seg, parsed) {
     return hw.branchMergeIsBehindTip(seg, parsed) ? hw.branchTipAtMerge(seg, parsed) : seg.commits[seg.commits.length - 1];
   }
   function findCoMergeLanding(seg, parsed) {
     if (seg.mergeHash && parsed.commitMap[seg.mergeHash]) return null;
-    if (hw.branchSegmentFrozenMerge(seg, parsed)) return null;
     const tip = hw.coMergeLookupTip(seg, parsed);
     if (!tip) return null;
     let best = null;
@@ -949,14 +1007,14 @@
       if (!parsed.mainlineSet.has(c.hash)) return;
       const branchParent = c.parents[1];
       if (!branchParent) return;
-      if (!hw.segmentOwnsMergeCommit(seg, c, seg.commits, parsed)) return;
+      if (!hw.segmentParticipatedInMerge(seg, c, seg.commits, parsed)) return;
       const col = c.versionIndex ?? c.displayColumn;
       if (!best || col < best.column) best = { commit: c, column: col };
     });
     return best;
   }
   function branchSegmentJoinColumn(seg, parsed) {
-    const mc = hw.segmentOwnsMerge(seg, parsed) ? parsed.commitMap[seg.mergeHash] : null;
+    const mc = hw.segmentMergeCommit(seg, parsed);
     if (mc && mc.parents.length >= 2) {
       return mc.versionIndex ?? mc.displayColumn;
     }
@@ -967,42 +1025,33 @@
   }
   function segmentOwnsMergeCommit(seg, mergeCommit, chain, parsed) {
     if (!mergeCommit?.parents || mergeCommit.parents.length < 2) return false;
-    const bp = mergeCommit.parents[1];
-    const chainSet = new Set((chain || seg.commits || []).map((c) => c.hash));
-    if (!chainSet.has(bp)) return false;
     const commits = chain || seg.commits || [];
-    const tip = commits[commits.length - 1];
-    if (tip && bp === tip.hash) return true;
-    const mergeCol = mergeCommit.versionIndex ?? mergeCommit.displayColumn ?? 0;
-    let tipAtMerge = null;
-    commits.forEach((c) => {
-      const col = c.versionIndex ?? c.displayColumn ?? 0;
-      if (col > mergeCol) return;
-      if (!tipAtMerge || col >= (tipAtMerge.versionIndex ?? tipAtMerge.displayColumn)) tipAtMerge = c;
-    });
-    if (tipAtMerge && bp === tipAtMerge.hash) return true;
-    const name = seg?.name || seg?.id;
-    if (!name) return false;
-    if (hw.commitBelongsToBranch(mergeCommit, name)) return true;
+    const tipAtMerge = hw.segmentTipAtMergeColumn(mergeCommit, commits);
+    if (!tipAtMerge) return false;
+    const bp = mergeCommit.parents[1];
+    const chainSet = new Set(commits.map((c) => c.hash));
+    if (chainSet.has(bp) || tipAtMerge.hash === bp) return true;
     const bpCommit = parsed.commitMap[bp];
-    return Boolean(bpCommit && hw.commitBelongsToBranch(bpCommit, name));
+    if (bpCommit && hw.isReachableFrom(tipAtMerge.hash, bp, parsed.commitMap)) return true;
+    if (bpCommit && hw.isReachableFrom(bp, tipAtMerge.hash, parsed.commitMap)) return true;
+    return false;
   }
   function segmentOwnsMerge(seg, parsed) {
-    const mc = seg.mergeHash && parsed.commitMap[seg.mergeHash];
+    const mc = hw.segmentMergeCommit(seg, parsed);
     if (!mc) return false;
-    return hw.segmentOwnsMergeCommit(seg, mc, seg.commits, parsed);
+    return hw.segmentParticipatedInMerge(seg, mc, seg.commits, parsed);
   }
-  function shouldDrawMergeIntoParent(seg, parsed) {
-    if (hw.segmentOwnsMerge(seg, parsed)) {
-      return !hw.branchSegmentFrozenMerge(seg, parsed);
-    }
-    if (hw.branchSegmentFrozenMerge(seg, parsed)) return false;
+  function branchSegmentHasHistoricalMerge(seg, parsed) {
+    if (hw.segmentOwnsMerge(seg, parsed)) return true;
     if (hw.findCoMergeLanding(seg, parsed)) return true;
     if (hw.branchSegmentFullyOnMainline(seg, parsed)) return true;
     return false;
   }
+  function shouldDrawMergeIntoParent(seg, parsed) {
+    return hw.branchSegmentHasHistoricalMerge(seg, parsed);
+  }
   function branchSegmentLandingCommit(seg, parsed) {
-    const mc = hw.segmentOwnsMerge(seg, parsed) ? parsed.commitMap[seg.mergeHash] : null;
+    const mc = hw.segmentMergeCommit(seg, parsed);
     if (mc) return mc;
     const co = hw.findCoMergeLanding(seg, parsed);
     if (co) return co.commit;
@@ -1055,6 +1104,7 @@
       isHead: landing.hash === head.hash,
       isHub: true,
       isMergeLanding: true,
+      isHistoricalMergeLanding: hw.branchSegmentFrozenMerge(seg, parsed),
       isFolderAggregate: parentLane.type === "folder" && !parentLane.isHeader,
       isBranchLane: false,
       branchName: seg.name
@@ -1083,6 +1133,13 @@
   Object.assign(hw, {
     segmentTouchesLane,
     branchSegmentFullyOnMainline,
+    segmentMergeCommit,
+    segmentTipAtMergeColumn,
+    mergeCommitNamesBranchFromSubject,
+    mergeCommitNamesBranch,
+    mergeCommitNamedBranches,
+    segmentParticipatedInMerge,
+    branchHasCommitsAfterMerge,
     branchMergeIsBehindTip,
     branchTipAtMerge,
     coMergeLookupTip,
@@ -1090,6 +1147,7 @@
     branchSegmentJoinColumn,
     segmentOwnsMergeCommit,
     segmentOwnsMerge,
+    branchSegmentHasHistoricalMerge,
     shouldDrawMergeIntoParent,
     branchSegmentLandingCommit,
     mergeLaneVersionOnParent,
@@ -1119,6 +1177,45 @@
     const forkV = hw.laneForkV(lane, seg, parsed);
     const mergeV = hw.shouldDrawMergeIntoParent(seg, parsed) ? hw.branchSegmentJoinColumn(seg, parsed) : null;
     return { forkV, mergeV };
+  }
+  function branchLaneProvenanceLine(node, seg, parsed) {
+    const p = parsed || hw.state.parsed;
+    if (!node?.lane?.isBranchLane || !seg?.commits?.length || !p?.commitMap) return null;
+    const commit = node.hash ? p.commitMap[node.hash] : null;
+    if (!commit) return null;
+    const parentPath = node.lane.parentLanePath;
+    const branchLabel = seg.name || seg.id || "branch";
+    const chainSet = new Set(seg.commits.map((c) => c.hash));
+    const nodeCol = commit.versionIndex ?? commit.displayColumn ?? node.displayColumn ?? node.graphX ?? 0;
+    const formatRef = (c) => {
+      if (!c) return "?";
+      const gc = hw.formatGlobalCommitColumn(c.displayColumn ?? c.versionIndex);
+      if (hw.PER_LANE_VERSION && parentPath && c.laneVersions?.[parentPath] != null) {
+        return `${hw.formatLaneVersion(c.laneVersions[parentPath])}\uFF08${gc}\uFF09`;
+      }
+      return gc;
+    };
+    let pred = null;
+    const gitParent = commit.parents?.[0] && p.commitMap[commit.parents[0]];
+    if (gitParent && chainSet.has(gitParent.hash)) pred = gitParent;
+    if (!pred) {
+      seg.commits.forEach((c) => {
+        if (c.hash === commit.hash) return;
+        const cCol = c.versionIndex ?? c.displayColumn ?? 0;
+        if (cCol >= nodeCol) return;
+        if (!pred || cCol > (pred.versionIndex ?? pred.displayColumn)) pred = c;
+      });
+    }
+    if (pred) {
+      return `\u2387 ${branchLabel} \xB7 \u6CBF\u5206\u652F\u7531 ${formatRef(pred)} \u63A8\u8FDB`;
+    }
+    const parentLane = hw.state.catalog?.lanes?.find((l) => l.path === parentPath && !l.isBranchLane);
+    const forkV = parentLane ? hw.laneForkV(parentLane, seg, p) : p.commitMap[seg.forkHash]?.versionIndex ?? 1;
+    return `\u2387 ${branchLabel} \xB7 \u4ECE\u4E3B\u6CF3\u9053 ${hw.formatGlobalCommitColumn(forkV)} \u5206\u51FA`;
+  }
+  function branchLaneProvenanceIsContinuation(node, seg, parsed) {
+    const line = hw.branchLaneProvenanceLine(node, seg, parsed);
+    return Boolean(line && line.includes("\u6CBF\u5206\u652F\u7531"));
   }
   function commitBlockedOnParentLane(commit, lane, parsed) {
     const trunk = parsed.trunkLaneCommitSet || parsed.mainlineSet;
@@ -1210,6 +1307,8 @@
   Object.assign(hw, {
     segmentsForLane,
     laneForkV,
+    branchLaneProvenanceLine,
+    branchLaneProvenanceIsContinuation,
     laneSegmentBounds,
     commitBlockedOnParentLane,
     parentLaneTrackHoles,
@@ -1905,8 +2004,13 @@
           });
         }
         if (drawMerge && mergeV != null && branchLane.laneIndex === laneIndex && lastBranch && (hw.columnInWindow(mergeV) || hw.columnInWindow(lastBranch.displayColumn))) {
-          const histMerge = hw.branchMergeIsBehindTip(seg, parsed);
-          const mergeSource = histMerge ? hw.branchTipAtMerge(seg, parsed) : lastBranch.commit;
+          const historical = hw.branchSegmentFrozenMerge(seg, parsed);
+          const histMerge = historical || hw.branchMergeIsBehindTip(seg, parsed);
+          let mergeSource = histMerge ? hw.branchTipAtMerge(seg, parsed) : lastBranch.commit;
+          if (mergeSource && mergeV != null) {
+            const srcCol = mergeSource.versionIndex ?? mergeSource.displayColumn;
+            if (srcCol > mergeV) mergeSource = hw.branchTipAtMerge(seg, parsed);
+          }
           const mergeFromCol = mergeSource ? mergeSource.versionIndex ?? mergeSource.displayColumn : lastBranch.displayColumn;
           const mergeFromX = hw.versionX(mergeFromCol);
           const mergeToX = mergeX ?? hw.versionX(mergeV);
@@ -1918,7 +2022,8 @@
             y2: hw.laneCenterY(parentLane.laneIndex),
             parentLane,
             branchLane,
-            active: true
+            active: !historical,
+            historical
           });
         }
       });
@@ -2255,6 +2360,41 @@ ${lines}
   function cmdCheckout(hash, filePath) {
     return `git checkout ${hash} -- ${filePath}`;
   }
+  function nodeReferenceFilePaths(node) {
+    const files = node?.files?.length ? node.files : node?.filePath ? [node.filePath] : [];
+    return [...new Set(files.filter(Boolean))];
+  }
+  function cmdCheckoutFiles(hash, filePaths) {
+    const paths = filePaths || [];
+    if (!paths.length) return "# \u6B64\u8282\u70B9\u65E0\u6587\u4EF6\u8DEF\u5F84\uFF08\u8BF7\u9009\u5177\u4F53\u6587\u4EF6\u8282\u70B9\u6216\u542B\u6587\u4EF6\u7684 commit\uFF09";
+    return paths.map((f) => hw.cmdCheckout(hash, f)).join("\n");
+  }
+  function cmdCheckoutDetach(hash) {
+    const short = String(hash || "").slice(0, 7);
+    return `git switch --detach ${short}
+# \u4EC5\u67E5\u770B\u8BE5\u7248\u672C\uFF1BHEAD \u4F1A\u8FDB\u5165 detached\u3002\u56DE\u5230\u539F\u5206\u652F\uFF1Agit switch -`;
+  }
+  function cmdPreviewUi(hash, devCommand) {
+    const short = String(hash || "").slice(0, 7);
+    const dev = devCommand || "npm run dev";
+    return `# \u6574\u5E93\u68C0\u51FA\uFF08\u5DE5\u4F5C\u533A\u5168\u90E8\u6587\u4EF6\u53D8\u4E3A\u8BE5\u63D0\u4EA4\uFF1B\u975E\u4E34\u65F6\u526F\u672C\uFF09
+git switch --detach ${short}
+${dev}
+# \u770B\u5B8C\u540E\u70B9 horsewhip \u6807\u9898\u680F\u300C\u6062\u590D\u5DE5\u4F5C\u533A\u300D`;
+  }
+  function branchRefOnNode(node, parsed) {
+    const c = parsed?.commitMap?.[node?.hash];
+    if (!c?.refs?.length) return null;
+    for (const r of c.refs) {
+      const clean = hw.normalizeRefName?.(r) ?? String(r).replace(/^origin\//, "").trim();
+      if (!clean || /^HEAD$/i.test(clean) || /^(main|master)$/i.test(clean)) continue;
+      return clean;
+    }
+    return null;
+  }
+  function cmdSwitchBranch(branchName) {
+    return `git switch ${branchName}`;
+  }
   function cmdResetHard(hash) {
     return `# \u26A0\uFE0F \u5C06\u4E22\u5931 ${hash} \u4E4B\u540E\u7684\u6240\u6709\u672A\u63D0\u4EA4/\u5DF2\u63D0\u4EA4\u672C\u5730\u6539\u52A8\uFF0C\u8BF7\u5148\u5907\u4EFD\u6216 stash
 git reset --hard ${hash}`;
@@ -2349,6 +2489,12 @@ git reset --hard ${hash}`;
     selectFolderFromRail,
     wireFileRailFolderRow,
     cmdCheckout,
+    nodeReferenceFilePaths,
+    cmdCheckoutFiles,
+    cmdCheckoutDetach,
+    cmdPreviewUi,
+    branchRefOnNode,
+    cmdSwitchBranch,
     cmdResetHard,
     constraintForNode,
     nodeCanWhip,
@@ -3421,6 +3567,9 @@ git reset --hard ${hash}`;
     hw.clearError();
     hw.state.animateNext = false;
     hw.setGraphStreaming(true);
+    if (hw.isPluginHost() && hw.els.graphEmpty) {
+      hw.els.graphEmpty.classList.add("hidden");
+    }
     try {
       hw.state.laneSliceCache = /* @__PURE__ */ new Map();
       const catalog = hw.buildLaneCatalog(hw.state.parsed);
@@ -3722,7 +3871,7 @@ git reset --hard ${hash}`;
     const fileScope = allFiles.length ? allFiles.join(", ") : "\uFF08\u8BF7\u6839\u636E\u5404\u5206\u652F diff \u81EA\u884C\u786E\u5B9A\uFF09";
     return `\u3010horsewhip \xB7 AI \u591A\u5206\u652F\u878D\u5408\u3011
 
-\u76EE\u6807\uFF1A\u4EE5\u4E0B ${names.length} \u6761\u5B9E\u9A8C\u5206\u652F\u5404\u81EA\u90FD\u6709\u53EF\u53D6\u4E4B\u5904\uFF0C\u8BF7\u628A\u5B83\u4EEC**\u62E9\u4F18\u878D\u5408**\u56DE\u4E3B\u6CF3\u9053 **${main}**\uFF0C\u5F62\u6210\u4E00\u4E2A\u65B0\u7684\u7EDF\u4E00\u7248\u672C\uFF1B\u5B8C\u6210\u540E\u6211\u4F1A\u5728horsewhip \u4E3B\u6CF3\u9053\u4E0A\u7EE7\u7EED\u89C2\u5BDF\uFF08\u672C\u5DE5\u5177\u4E3A AI \u8FB9\u754C\u6536\u675F\uFF0C\u975E Git \u62D3\u6251\u56FE\uFF09\u3002
+\u76EE\u6807\uFF1A\u4EE5\u4E0B ${names.length} \u6761\u5B9E\u9A8C\u5206\u652F\u5404\u81EA\u90FD\u6709\u53EF\u53D6\u4E4B\u5904\uFF0C\u8BF7\u628A\u5B83\u4EEC**\u62E9\u4F18\u878D\u5408**\u56DE\u4E3B\u6CF3\u9053 **${main}**\uFF0C\u5F62\u6210\u4E00\u4E2A\u65B0\u7684\u7EDF\u4E00\u7248\u672C\uFF1B\u5B8C\u6210\u540E\u6211\u4F1A\u5728 horsewhip \u4E3B\u6CF3\u9053\u4E0A\u7EE7\u7EED\u89C2\u5BDF\uFF08\u672C\u5DE5\u5177\u4E3A AI \u8FB9\u754C\u6536\u675F\uFF0C\u975E Git \u62D3\u6251\u56FE\uFF09\u3002
 
 \u5F85\u878D\u5408\u5206\u652F\uFF08\u8BF7\u4FDD\u7559\u5404\u5206\u652F\u4E0A\u300C\u8FD8\u53EF\u4EE5\u300D\u7684\u5B9E\u73B0\uFF0C\u4E0D\u8981\u7B80\u5355\u7528\u67D0\u4E00\u7248\u5168\u8986\u76D6\uFF09\uFF1A
 ${blocks}
@@ -3944,8 +4093,11 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
   }
   function openNodeModal(node) {
     if (hw.isBranchGraphAnchor(node)) return;
-    hw.state.modalNode = node;
     const files = node.files || [node.filePath];
+    const parsed = hw.state.parsed;
+    const branchRef = hw.branchRefOnNode(node, parsed);
+    node.branchRef = branchRef;
+    hw.state.modalNode = node;
     hw.els.modalTitle.textContent = (() => {
       const ver = hw.nodeVersionTooltipLine(node);
       const subj = hw.commitSubjectForNode(node);
@@ -3958,13 +4110,6 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
       if (folderPath) return hw.constraintFolder(folderPath);
       return files.length === 1 ? hw.constraintSingle(files[0]) : hw.constraintMulti(files);
     })();
-    hw.els.modalCmdFile.textContent = node.isFolderAggregate ? `# \u6587\u4EF6\u5939\u8FB9\u754C \xB7 \u8BF7\u6309\u9700 checkout \u76EE\u5F55\u4E0B\u5177\u4F53\u6587\u4EF6
-${files.map((f) => hw.cmdCheckout(node.hash, f)).join("\n")}` : files.length === 1 ? hw.cmdCheckout(node.hash, files[0]) : files.map((f) => hw.cmdCheckout(node.hash, f)).join("\n");
-    hw.els.modalCmdReset.textContent = hw.cmdResetHard(node.hash);
-    hw.els.rollbackDanger.hidden = true;
-    hw.els.resetConfirm.value = "";
-    hw.els.btnCopyReset.disabled = true;
-    hw.els.btnToggleReset.textContent = "confirm";
     hw.els.modalBackdrop.hidden = false;
   }
   function onBundleClick(bundle) {
@@ -4054,14 +4199,12 @@ ${files.map((f) => hw.cmdCheckout(node.hash, f)).join("\n")}` : files.length ===
     const files = node.files || [node.filePath];
     const ver = hw.nodeVersionTooltipLine(node);
     const subj = hw.commitSubjectForNode(node);
-    const fileLine = node.isForkAnchor ? `\u4E3B\u6CF3\u9053\u5728\u6B64\u5904\u5206\u53C9 \u2192 \u2387 ${node.branchName || "branch"}` : node.isMergeAnchor || node.isMergeLanding ? `\u5206\u652F\u5408\u5165\u4E3B\u6CF3\u9053 \xB7 \u2387 ${node.branchName || "branch"}` : node.lane?.isBranchLane ? (() => {
+    const fileLine = node.isForkAnchor ? `\u4E3B\u6CF3\u9053\u5728\u6B64\u5904\u5206\u53C9 \u2192 \u2387 ${node.branchName || "branch"}` : node.isMergeAnchor || node.isMergeLanding ? node.isHistoricalMergeLanding ? `\u66FE\u7531\u5206\u652F\u6C47\u5165\u4E3B\u6CF3\u9053\uFF08\u5206\u652F\u5DF2\u7EE7\u7EED\u8FED\u4EE3\uFF09\xB7 \u2387 ${node.branchName || "branch"}` : `\u5206\u652F\u5408\u5165\u4E3B\u6CF3\u9053 \xB7 \u2387 ${node.branchName || "branch"}` : node.lane?.isBranchLane ? (() => {
       const seg = node.lane.branchSegment;
-      const forkC = seg && hw.state.parsed?.commitMap[seg.forkHash];
-      const parentPath = node.lane?.parentLanePath;
-      const forkLabel = forkC && parentPath ? hw.PER_LANE_VERSION && forkC.laneVersions?.[parentPath] != null ? hw.formatLaneVersion(forkC.laneVersions[parentPath]) : hw.formatGlobalCommitColumn(forkC.displayColumn) : "?";
-      return `\u2387 ${seg?.name || "branch"} \xB7 \u4ECE\u4E3B\u6CF3\u9053 ${forkLabel} \u5206\u51FA`;
+      const parsed = hw.state.parsed;
+      return seg && parsed && hw.branchLaneProvenanceLine(node, seg, parsed) || `\u2387 ${seg?.name || "branch"} \xB7 \u6CBF\u5206\u652F\u63A8\u8FDB`;
     })() : node.isFolderAggregate ? node.lanePath === hw.ROOT_BUCKET ? "(root)/" : node.lanePath || node.label : files[0];
-    const foot = node.isForkAnchor ? hw.PER_LANE_VERSION ? "\u4ECE\u8BE5\u6587\u4EF6\u5939\u7248\u672C\u5904\u5206\u51FA\uFF08\u6A2A\u8F74\u4E3A\u4E0A\u4F20 Cn\uFF09" : "\u4ECE\u8BE5\u7248\u672C\u5217\u5206\u51FA" : node.isMergeAnchor || node.isMergeLanding ? hw.PER_LANE_VERSION ? "\u6CBF\u5206\u652F\u6CF3\u9053\u5408\u5165\uFF08\u6A2A\u8F74\u4E3A\u4E0A\u4F20 Cn\uFF09" : "\u6CBF\u5206\u652F\u6CF3\u9053\u5408\u5165\u8BE5\u7248\u672C\u5217" : node.isFolderAggregate ? "\u5355\u51FB\u9009\u4E2D\u6587\u4EF6\u5939\u8FB9\u754C \xB7 \u53CC\u51FB\u8BE6\u60C5 \xB7 \u70B9horsewhip \u590D\u5236" : "\u5355\u51FB\u5207\u6362\u9009\u4E2D \xB7 \u53CC\u51FB\u8BE6\u60C5 \xB7 \u70B9horsewhip \u590D\u5236";
+    const foot = node.isForkAnchor ? hw.PER_LANE_VERSION ? "\u4ECE\u8BE5\u6587\u4EF6\u5939\u7248\u672C\u5904\u5206\u51FA\uFF08\u6A2A\u8F74\u4E3A\u4E0A\u4F20 Cn\uFF09" : "\u4ECE\u8BE5\u7248\u672C\u5217\u5206\u51FA" : node.isMergeAnchor || node.isMergeLanding ? hw.PER_LANE_VERSION ? "\u6CBF\u5206\u652F\u6CF3\u9053\u5408\u5165\uFF08\u6A2A\u8F74\u4E3A\u4E0A\u4F20 Cn\uFF09" : "\u6CBF\u5206\u652F\u6CF3\u9053\u5408\u5165\u8BE5\u7248\u672C\u5217" : node.lane?.isBranchLane ? hw.branchLaneProvenanceIsContinuation(node, node.lane.branchSegment, hw.state.parsed) ? "\u6CBF\u672C\u5206\u652F\u6CF3\u9053\u63A8\u8FDB\uFF08\u975E\u4E3B\u6CF3\u9053\u65B0\u5206\u53C9\uFF09" : hw.PER_LANE_VERSION ? "\u4ECE\u4E3B\u6CF3\u9053\u8BE5\u5217\u5206\u51FA\uFF08\u6A2A\u8F74\u4E3A\u4E0A\u4F20 Cn\uFF09" : "\u4ECE\u4E3B\u6CF3\u9053\u8BE5\u5217\u5206\u51FA" : node.isFolderAggregate ? "\u5355\u51FB\u9009\u4E2D\u6587\u4EF6\u5939\u8FB9\u754C \xB7 \u53CC\u51FB\u8BE6\u60C5 \xB7 \u70B9 horsewhip \u590D\u5236" : "\u5355\u51FB\u5207\u6362\u9009\u4E2D \xB7 \u53CC\u51FB\u8BE6\u60C5 \xB7 \u70B9 horsewhip \u590D\u5236";
     const accent = node.lane?.color || "#6d7ce8";
     const verLine = subj ? `${ver} \xB7 ${subj}` : ver;
     if (!hw.els.tooltip) return;
@@ -4614,6 +4757,9 @@ ${files.map((f) => hw.cmdCheckout(node.hash, f)).join("\n")}` : files.length ===
       if (typeof d3 === "undefined") {
         throw new Error("d3 \u672A\u52A0\u8F7D\uFF0C\u65E0\u6CD5\u7ED8\u5236\u6CF3\u9053");
       }
+      if (hw.isPluginHost() && hw.els.graphEmpty) {
+        hw.els.graphEmpty.classList.add("hidden");
+      }
       hw.state.headSnapshotBeforeLoad = hw.captureHeadSnapshot();
       const savedExpanded = hw.isPluginHost() ? new Set(hw.state.expandedPaths) : null;
       hw.state.rawLogText = text;
@@ -4649,6 +4795,13 @@ ${files.map((f) => hw.cmdCheckout(node.hash, f)).join("\n")}` : files.length ===
         hw.syncBoundaryBar();
       }
     } catch (e) {
+      if (hw.isPluginHost() && hw.els.graphEmpty) {
+        hw.els.graphEmpty.classList.remove("hidden");
+        const title = hw.els.graphEmpty.querySelector(".graph-empty__title");
+        const desc = hw.els.graphEmpty.querySelector(".graph-empty__desc");
+        if (title) title.textContent = "\u6CF3\u9053\u7ED8\u5236\u5931\u8D25";
+        if (desc) desc.textContent = e.message || String(e);
+      }
       hw.showError(e.message || String(e));
     }
   }
@@ -4879,19 +5032,6 @@ ${files.map((f) => hw.cmdCheckout(node.hash, f)).join("\n")}` : files.length ===
     hw.els.modalClose?.addEventListener("click", hw.closeModal);
     hw.els.modalBackdrop?.addEventListener("click", (e) => {
       if (e.target === hw.els.modalBackdrop) hw.closeModal();
-    });
-    hw.els.btnCopyConstraint?.addEventListener("click", () => hw.copyText(hw.els.modalConstraint.textContent, hw.els.btnCopyConstraint));
-    hw.els.btnCopyCheckout?.addEventListener("click", () => hw.copyText(hw.els.modalCmdFile.textContent, hw.els.btnCopyCheckout));
-    hw.els.btnToggleReset?.addEventListener("click", () => {
-      const hidden = hw.els.rollbackDanger.hidden;
-      hw.els.rollbackDanger.hidden = !hidden;
-      hw.els.btnToggleReset.textContent = hidden ? "hide" : "confirm";
-    });
-    hw.els.resetConfirm?.addEventListener("input", () => {
-      hw.els.btnCopyReset.disabled = hw.els.resetConfirm.value.trim() !== "RESET";
-    });
-    hw.els.btnCopyReset?.addEventListener("click", () => {
-      if (hw.els.resetConfirm.value.trim() === "RESET") hw.copyText(hw.els.modalCmdReset.textContent, hw.els.btnCopyReset);
     });
     hw.els.btnCopyLink?.addEventListener("click", () => {
       hw.copyText(hw.els.linkPanel.dataset.constraint || hw.els.linkConstraintText.textContent, hw.els.btnCopyLink);

@@ -71,18 +71,15 @@ function showTooltipForNode(node, anchorRect) {
   const fileLine = node.isForkAnchor
     ? `主泳道在此处分叉 → ⎇ ${node.branchName || 'branch'}`
     : node.isMergeAnchor || node.isMergeLanding
-      ? `分支合入主泳道 · ⎇ ${node.branchName || 'branch'}`
+      ? node.isHistoricalMergeLanding
+        ? `曾由分支汇入主泳道（分支已继续迭代）· ⎇ ${node.branchName || 'branch'}`
+        : `分支合入主泳道 · ⎇ ${node.branchName || 'branch'}`
       : node.lane?.isBranchLane
         ? (() => {
           const seg = node.lane.branchSegment;
-          const forkC = seg && hw.state.parsed?.commitMap[seg.forkHash];
-          const parentPath = node.lane?.parentLanePath;
-          const forkLabel = forkC && parentPath
-            ? (hw.PER_LANE_VERSION && forkC.laneVersions?.[parentPath] != null
-              ? hw.formatLaneVersion(forkC.laneVersions[parentPath])
-              : hw.formatGlobalCommitColumn(forkC.displayColumn))
-            : '?';
-          return `⎇ ${seg?.name || 'branch'} · 从主泳道 ${forkLabel} 分出`;
+          const parsed = hw.state.parsed;
+          return (seg && parsed && hw.branchLaneProvenanceLine(node, seg, parsed))
+            || `⎇ ${seg?.name || 'branch'} · 沿分支推进`;
         })()
         : node.isFolderAggregate
           ? (node.lanePath === hw.ROOT_BUCKET ? '(root)/' : (node.lanePath || node.label))
@@ -91,6 +88,10 @@ function showTooltipForNode(node, anchorRect) {
     ? (hw.PER_LANE_VERSION ? '从该文件夹版本处分出（横轴为上传 Cn）' : '从该版本列分出')
     : node.isMergeAnchor || node.isMergeLanding
       ? (hw.PER_LANE_VERSION ? '沿分支泳道合入（横轴为上传 Cn）' : '沿分支泳道合入该版本列')
+      : node.lane?.isBranchLane
+        ? (hw.branchLaneProvenanceIsContinuation(node, node.lane.branchSegment, hw.state.parsed)
+          ? '沿本分支泳道推进（非主泳道新分叉）'
+          : (hw.PER_LANE_VERSION ? '从主泳道该列分出（横轴为上传 Cn）' : '从主泳道该列分出'))
       : node.isFolderAggregate
         ? '单击选中文件夹边界 · 双击详情 · 点 horsewhip 复制'
         : '单击切换选中 · 双击详情 · 点 horsewhip 复制';

@@ -350,6 +350,47 @@ function cmdCheckout(hash, filePath) {
   return `git checkout ${hash} -- ${filePath}`;
 }
 
+function nodeReferenceFilePaths(node) {
+  const files = node?.files?.length ? node.files : (node?.filePath ? [node.filePath] : []);
+  return [...new Set(files.filter(Boolean))];
+}
+
+function cmdCheckoutFiles(hash, filePaths) {
+  const paths = filePaths || [];
+  if (!paths.length) return '# 此节点无文件路径（请选具体文件节点或含文件的 commit）';
+  return paths.map((f) => hw.cmdCheckout(hash, f)).join('\n');
+}
+
+function cmdCheckoutDetach(hash) {
+  const short = String(hash || '').slice(0, 7);
+  return `git switch --detach ${short}
+# 仅查看该版本；HEAD 会进入 detached。回到原分支：git switch -`;
+}
+
+function cmdPreviewUi(hash, devCommand) {
+  const short = String(hash || '').slice(0, 7);
+  const dev = devCommand || 'npm run dev';
+  return `# 整库检出（工作区全部文件变为该提交；非临时副本）
+git switch --detach ${short}
+${dev}
+# 看完后点 horsewhip 标题栏「恢复工作区」`;
+}
+
+function branchRefOnNode(node, parsed) {
+  const c = parsed?.commitMap?.[node?.hash];
+  if (!c?.refs?.length) return null;
+  for (const r of c.refs) {
+    const clean = hw.normalizeRefName?.(r) ?? String(r).replace(/^origin\//, '').trim();
+    if (!clean || /^HEAD$/i.test(clean) || /^(main|master)$/i.test(clean)) continue;
+    return clean;
+  }
+  return null;
+}
+
+function cmdSwitchBranch(branchName) {
+  return `git switch ${branchName}`;
+}
+
 function cmdResetHard(hash) {
   return `# ⚠️ 将丢失 ${hash} 之后的所有未提交/已提交本地改动，请先备份或 stash
 git reset --hard ${hash}`;
@@ -456,6 +497,12 @@ Object.assign(hw, {
   selectFolderFromRail,
   wireFileRailFolderRow,
   cmdCheckout,
+  nodeReferenceFilePaths,
+  cmdCheckoutFiles,
+  cmdCheckoutDetach,
+  cmdPreviewUi,
+  branchRefOnNode,
+  cmdSwitchBranch,
   cmdResetHard,
   constraintForNode,
   nodeCanWhip,

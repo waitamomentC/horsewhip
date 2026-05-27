@@ -1,8 +1,12 @@
 /**
- * VS Code webview bridge — loads git log from extension host, runs rollback in IDE.
+ * VS Code webview bridge — loads git log from extension host, preview at commit in IDE.
  */
 (function () {
   const vscode = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : null;
+
+  if (vscode) {
+    vscode.postMessage({ type: 'webviewHandshake' });
+  }
 
   const COMMIT_INPUT_IDS = ['commit-author-name', 'commit-author-email', 'commit-message'];
 
@@ -23,35 +27,14 @@
     },
   };
 
-  function wireRollbackButtons() {
-    const btnCheckout = document.getElementById('btn-run-checkout');
-    const btnReset = document.getElementById('btn-run-reset');
-    const resetInput = document.getElementById('reset-confirm');
-
-    if (resetInput && btnReset) {
-      resetInput.addEventListener('input', () => {
-        btnReset.disabled = resetInput.value.trim() !== 'RESET';
-      });
-    }
-
-    if (btnCheckout) {
-      btnCheckout.addEventListener('click', () => {
-        const node = window.HorsewhipApp?.getModalNode?.();
-        if (!node || !vscode) return;
-        const filePath = node.filePath || node.files?.[0];
-        if (!filePath) return;
-        vscode.postMessage({ type: 'gitCheckout', hash: node.hash, filePath });
-      });
-    }
-
-    if (btnReset) {
-      btnReset.addEventListener('click', () => {
-        const node = window.HorsewhipApp?.getModalNode?.();
-        if (!node || !vscode) return;
-        if (resetInput?.value.trim() !== 'RESET') return;
-        vscode.postMessage({ type: 'gitResetHard', hash: node.hash });
-      });
-    }
+  function wirePreviewButtons() {
+    const btnPreview = document.getElementById('btn-run-preview');
+    if (!btnPreview) return;
+    btnPreview.addEventListener('click', () => {
+      const node = window.HorsewhipApp?.getModalNode?.();
+      if (!node || !vscode) return;
+      vscode.postMessage({ type: 'gitPreviewUi', hash: node.hash });
+    });
   }
 
   function hideCommitPrompt() {
@@ -77,6 +60,11 @@
 
     const branchEl = document.getElementById('plugin-branch');
     if (branchEl) branchEl.textContent = status.branch || '—';
+
+    const restoreBtn = document.getElementById('btn-restore-env');
+    if (restoreBtn instanceof HTMLButtonElement) {
+      restoreBtn.hidden = !status.detached;
+    }
 
     const remoteEl = document.getElementById('plugin-remote-label');
     if (remoteEl) {
@@ -217,6 +205,10 @@
   }
 
   function wirePluginBar() {
+    document.getElementById('btn-restore-env')?.addEventListener('click', () => {
+      if (vscode) vscode.postMessage({ type: 'gitSwitchPrevious' });
+    });
+
     document.getElementById('btn-commit-open')?.addEventListener('click', () => {
       if (vscode) {
         vscode.postMessage({ type: 'requestOpenCommitDialog' });
@@ -285,6 +277,33 @@
 
   const pendingAppMessages = [];
   const APP_WAIT_MS = 20000;
+  const GIT_SYNC_WAIT_MS = 180000;
+  let gitSyncTimer = null;
+  /** @type {'booting'|'rendering'|'done'|'error'} */
+  let bootPhase = 'booting';
+
+  function setGraphEmptyStatus(text) {
+    if (bootPhase === 'error' || bootPhase === 'done') return;
+    const desc = document.querySelector('.graph-empty__desc');
+    if (desc) desc.textContent = text;
+  }
+
+  function clearGitSyncTimer() {
+    if (gitSyncTimer) {
+      clearTimeout(gitSyncTimer);
+      gitSyncTimer = null;
+    }
+  }
+
+  function armGitSyncTimer() {
+    clearGitSyncTimer();
+    gitSyncTimer = setTimeout(() => {
+      gitSyncTimer = null;
+      showGraphBootError(
+        '同步 Git 超时（网络或仓库过大）。请执行「Horsewhip: Refresh Git Log」或 Reload Window；终端需联网时勿阻塞 xterm CDN。',
+      );
+    }, GIT_SYNC_WAIT_MS);
+  }
 
   function hideGraphEmpty() {
     const empty = document.getElementById('graph-empty');
@@ -296,6 +315,8 @@
   }
 
   function showGraphBootError(text) {
+    bootPhase = 'error';
+    clearGitSyncTimer();
     const empty = document.getElementById('graph-empty');
     if (!empty) return;
     empty.classList.remove('hidden');
@@ -303,6 +324,41 @@
     const desc = empty.querySelector('.graph-empty__desc');
     if (title) title.textContent = 'horsewhip 未能启动';
     if (desc) desc.textContent = text || '请重新加载窗口（Developer: Reload Window）';
+  }
+
+  function applyTimelineLog(log) {
+    if (!window.HorsewhipApp) {
+      pendingAppMessages.push({ type: 'loadLog', log });
+      return;
+    }
+    bootPhase = 'rendering';
+    clearGitSyncTimer();
+    hideCommitPrompt();
+    setGraphEmptyStatus('正在解析并绘制泳道…');
+    try {
+      window.HorsewhipApp.loadLog(log);
+      bootPhase = 'done';
+      hideGraphEmpty();
+    } catch (err) {
+      showGraphBootError(err?.message || String(err));
+    }
+  }
+
+  function loadLogFromUri(uri) {
+    bootPhase = 'rendering';
+    setGraphEmptyStatus('正在读取 git log…');
+    fetch(uri)
+      .then((r) => {
+        if (!r.ok) throw new Error(`读取 log 失败（HTTP ${r.status}）`);
+        return r.text();
+      })
+      .then((log) => {
+        if (!log?.trim()) throw new Error('git log 为空');
+        applyTimelineLog(log);
+      })
+      .catch((err) => {
+        showGraphBootError(err?.message || String(err));
+      });
   }
 
   function needsHorsewhipApp(msg) {
@@ -316,16 +372,15 @@
     if (!window.HorsewhipApp) return false;
 
     if (msg.type === 'loadLog' && msg.log) {
-      hideCommitPrompt();
-      try {
-        window.HorsewhipApp.loadLog(msg.log);
-        hideGraphEmpty();
-      } catch (err) {
-        showGraphBootError(err?.message || String(err));
-      }
+      applyTimelineLog(msg.log);
+      return true;
+    }
+    if (msg.type === 'loadLogUri' && msg.uri) {
+      loadLogFromUri(msg.uri);
       return true;
     }
     if (msg.type === 'loadDemo') {
+      clearGitSyncTimer();
       hideCommitPrompt();
       try {
         window.HorsewhipApp.loadDemo();
@@ -347,20 +402,41 @@
   }
 
   function flushPendingAppMessages() {
-    if (!window.HorsewhipApp) return;
     while (pendingAppMessages.length) {
-      dispatchToHorsewhipApp(pendingAppMessages.shift());
+      const msg = pendingAppMessages.shift();
+      if (msg.type === 'loadLog' && msg.log) {
+        applyTimelineLog(msg.log);
+      } else if (msg.type === 'loadLogUri' && msg.uri) {
+        loadLogFromUri(msg.uri);
+      } else if (window.HorsewhipApp) {
+        dispatchToHorsewhipApp(msg);
+      } else {
+        pendingAppMessages.unshift(msg);
+        break;
+      }
     }
+  }
+
+  function startHostIfReady() {
+    if (window.__horsewhipBootError) {
+      showGraphBootError(window.__horsewhipBootError);
+      return true;
+    }
+    if (!window.HorsewhipApp) return false;
+    flushPendingAppMessages();
+    if (vscode) {
+      armGitSyncTimer();
+      vscode.postMessage({ type: 'ready' });
+    }
+    return true;
   }
 
   function whenHorsewhipAppReady(onReady) {
     const done = () => {
-      if (window.__horsewhipBootError) {
-        showGraphBootError(window.__horsewhipBootError);
-      } else if (window.HorsewhipApp) {
-        flushPendingAppMessages();
-      } else {
-        showGraphBootError('脚本未加载完成。请执行 Reload Window，并确认 extension/media/script.js 已同步。');
+      if (!startHostIfReady()) {
+        showGraphBootError(
+          '脚本未加载（extension/media/script.js）。请确认：① 仓库根目录 npm run build:extension  ② Cursor 打开的是 horsewhip 根目录  ③ F5 调试（不要只装旧 VSIX）  ④ Reload Window',
+        );
       }
       if (typeof onReady === 'function') onReady();
     };
@@ -403,7 +479,20 @@
       return;
     }
 
+    if (msg.type === 'bootStatus' && msg.text) {
+      if (bootPhase === 'booting') setGraphEmptyStatus(msg.text);
+      return;
+    }
+
+    if (msg.type === 'gitLoadError') {
+      clearGitSyncTimer();
+      showGraphBootError(msg.error || '读取 git log 失败');
+      return;
+    }
+
     if (msg.type === 'noCommits') {
+      clearGitSyncTimer();
+      hideGraphEmpty();
       showCommitPrompt({
         mode: 'initial',
         authorName: msg.authorName || '',
@@ -439,6 +528,23 @@
       return;
     }
 
+    if (msg.type === 'commitBlocked') {
+      const err = document.getElementById('commit-error');
+      const list = (msg.overreach || []).join(', ');
+      if (err) {
+        err.textContent = msg.reason
+          || `提交被拦截。越界仍留在工作区：${list || '—'}。请点「还原越界」或让 AI 复原后仅在边界内改。`;
+      }
+      applyGuardStatus({
+        hasBoundary: msg.hasBoundary !== false,
+        ok: false,
+        allowed: msg.allowed || [],
+        overreach: msg.overreach || [],
+      });
+      setCommitInputsDisabled(false);
+      return;
+    }
+
     if (msg.type === 'commitError') {
       const err = document.getElementById('commit-error');
       if (err) err.textContent = msg.error || '提交失败';
@@ -453,6 +559,15 @@
       if (msgEl instanceof HTMLInputElement) msgEl.value = '';
       const err = document.getElementById('commit-error');
       if (err) err.textContent = '';
+    }
+
+    if (msg.type === 'loadLogUri' && msg.uri) {
+      if (!window.HorsewhipApp && !window.__horsewhipBootError) {
+        pendingAppMessages.push(msg);
+        return;
+      }
+      loadLogFromUri(msg.uri);
+      return;
     }
 
     if (needsHorsewhipApp(msg)) {
@@ -472,16 +587,22 @@
   window.addEventListener('message', onMessage);
 
   function boot() {
-    wireRollbackButtons();
+    wirePreviewButtons();
     wireCommitPrompt();
     wireGuardBar();
     wirePluginBar();
+    if (startHostIfReady()) return;
     whenHorsewhipAppReady(() => {
-      if (vscode) vscode.postMessage({ type: 'ready' });
+      startHostIfReady();
     });
   }
 
-  if (document.readyState === 'loading') {
+  if (startHostIfReady()) {
+    wirePreviewButtons();
+    wireCommitPrompt();
+    wireGuardBar();
+    wirePluginBar();
+  } else if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', boot);
   } else {
     boot();

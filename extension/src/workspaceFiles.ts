@@ -11,7 +11,7 @@ export async function collectWorkspaceRelPaths(): Promise<string[]> {
   const uris = await vscode.workspace.findFiles(
     new vscode.RelativePattern(folder, '**/*'),
     EXCLUDE_GLOB,
-    8000,
+    3000,
   );
 
   const root = folder.uri.fsPath;

@@ -8,7 +8,10 @@ export class HorsewhipLauncherProvider implements vscode.TreeDataProvider<vscode
 
   readonly onDidChangeTreeData = this.onDidChangeTreeDataEmitter.event;
 
-  constructor(private readonly extensionUri: vscode.Uri) {}
+  constructor(
+    private readonly extensionUri: vscode.Uri,
+    private readonly storageUri: vscode.Uri,
+  ) {}
 
   getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
     return element;
@@ -25,7 +28,7 @@ export class HorsewhipLauncherProvider implements vscode.TreeDataProvider<vscode
   bindTreeView(treeView: vscode.TreeView<vscode.TreeItem>): void {
     treeView.onDidChangeVisibility((e) => {
       if (e.visible) {
-        void HorsewhipPanel.open(this.extensionUri);
+        void HorsewhipPanel.open(this.extensionUri, this.storageUri);
       }
     });
   }
