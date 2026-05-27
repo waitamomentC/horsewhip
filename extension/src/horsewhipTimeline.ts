@@ -31,8 +31,12 @@ import { collectWorkspaceRelPaths, subscribeWorkspaceFiles } from './workspaceFi
 import { checkWorkspace, getWorkspaceFolderName, getWorkspaceRoot } from './workspaceGate';
 import { buildGateHtml, buildTimelineHtml } from './webviewHtml';
 import { watchGitRepository } from './gitWatch';
-import { WorkspaceTerminal } from './workspaceTerminal';
-import { setBoundaryAllowlist, setBoundaryAllowlistWorkspaceRoot } from './boundaryAllowlist';
+import {
+  isGuardActive,
+  setBoundaryAllowlist,
+  setBoundaryAllowlistWorkspaceRoot,
+  setGuardActive,
+} from './boundaryAllowlist';
 import {
   assertCommitAllowed,
   processCommitBlockedMarker,
@@ -66,10 +70,7 @@ type WebviewInbound =
   | { type: 'requestOpenCommitDialog' }
   | { type: 'openExternalUrl'; url: string }
   | { type: 'revealFolder'; folderPath: string }
-  | { type: 'terminalOpen' }
-  | { type: 'terminalClose' }
-  | { type: 'terminalInput'; data: string }
-  | { type: 'terminalResize'; cols: number; rows: number }
+  | { type: 'setGuardActive'; active: boolean }
   | { type: 'gateOpenFolder' }
   | { type: 'gateGitInit' }
   | {
@@ -97,8 +98,6 @@ export class HorsewhipTimeline {
   private workspaceFilesDisposable: vscode.Disposable | undefined;
 
   private projectName = 'project';
-
-  private workspaceTerminal: WorkspaceTerminal | undefined;
 
   private gitWatchDisposable: vscode.Disposable | undefined;
 
@@ -143,8 +142,6 @@ export class HorsewhipTimeline {
   dispose(): void {
     setBoundaryAllowlistWorkspaceRoot(undefined);
     setGuardWebviewNotifier(undefined);
-    this.workspaceTerminal?.stop();
-    this.workspaceTerminal = undefined;
     this.gitWatchDisposable?.dispose();
     this.gitWatchDisposable = undefined;
     this.workspaceFilesDisposable?.dispose();
@@ -184,9 +181,6 @@ export class HorsewhipTimeline {
 
   /** 根据工作区 / git 状态刷新整个 Webview。 */
   async refresh(): Promise<void> {
-    this.workspaceTerminal?.stop();
-    this.workspaceTerminal = undefined;
-
     const state = await checkWorkspace();
 
     if (!state.ok) {
@@ -370,23 +364,18 @@ export class HorsewhipTimeline {
     });
   }
 
-  private ensureWorkspaceTerminal(): WorkspaceTerminal | undefined {
-    if (!this.workspaceRoot) return undefined;
-    if (!this.workspaceTerminal) {
-      this.workspaceTerminal = new WorkspaceTerminal(
-        this.workspaceRoot,
-        (msg) => this.webview.postMessage(msg),
-      );
-    }
-    return this.workspaceTerminal;
-  }
-
   private async pushRepoStatus(): Promise<void> {
     if (!this.workspaceRoot) return;
     const status = await getRepoStatus(this.workspaceRoot);
     const authorName = await getGitConfig(this.workspaceRoot, 'user.name');
     const authorEmail = await getGitConfig(this.workspaceRoot, 'user.email');
-    this.webview.postMessage({ type: 'repoStatus', ...status, authorName, authorEmail });
+    this.webview.postMessage({
+      type: 'repoStatus',
+      ...status,
+      authorName,
+      authorEmail,
+      guardActive: isGuardActive(),
+    });
   }
 
   private async runGitCommit(message: string, authorName: string, authorEmail: string): Promise<void> {
@@ -585,18 +574,25 @@ export class HorsewhipTimeline {
       await vscode.commands.executeCommand('revealInExplorer', uri);
       return;
     }
-    if (msg.type === 'terminalOpen') {
-      this.ensureWorkspaceTerminal()?.start();
-      return;
-    }
-    if (msg.type === 'terminalClose') {
-      return;
-    }
-    if (msg.type === 'terminalInput') {
-      this.ensureWorkspaceTerminal()?.write(msg.data ?? '');
-      return;
-    }
-    if (msg.type === 'terminalResize') {
+    if (msg.type === 'setGuardActive') {
+      if (!this.workspaceRoot) return;
+      void (async () => {
+        const active = Boolean(msg.active);
+        await setGuardActive(active);
+        const { refreshEditorsForBoundary } = await import('./boundaryEditGuard');
+        await refreshEditorsForBoundary(this.workspaceRoot!);
+        await runBoundaryGuardCheck(this.workspaceRoot!, { silent: true });
+        this.webview.postMessage({
+          type: 'guardStatus',
+          guardActive: active,
+          hasBoundary: false,
+          ok: true,
+          allowed: [],
+          overreach: [],
+          actualCount: 0,
+        });
+        await this.pushRepoStatus();
+      })();
       return;
     }
     if (msg.type === 'remoteWizardOpen') {

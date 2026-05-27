@@ -9,8 +9,24 @@ function prepareFileRailShell(lanes) {
   spacer.style.height = `${hw.CONFIG.RULER_HEIGHT}px`;
   spacer.setAttribute('aria-hidden', 'true');
   inner.appendChild(spacer);
-  inner.style.height = `${hw.CONFIG.RULER_HEIGHT + Math.max(lanes.length, 1) * hw.CONFIG.LANE_HEIGHT}px`;
+  const laneCount = hw.laneCountForScroll(lanes.length);
+  inner.style.height = `${hw.graphSvgHeight(laneCount)}px`;
   return inner;
+}
+
+function ensureFileRailScrollPad() {
+  const inner = hw.els.fileRailInner;
+  if (!inner) return;
+  const padH = hw.fileRailScrollPadHeight();
+  let pad = inner.querySelector('.file-rail__scroll-pad');
+  if (!pad) {
+    pad = document.createElement('div');
+    pad.className = 'file-rail__scroll-pad';
+    pad.setAttribute('aria-hidden', 'true');
+    inner.appendChild(pad);
+  }
+  pad.style.height = `${padH}px`;
+  pad.style.flexShrink = '0';
 }
 
 function fileRailIndent(depth) {
@@ -113,6 +129,7 @@ function appendFileRailRow(lane) {
 
 Object.assign(hw, {
   prepareFileRailShell,
+  ensureFileRailScrollPad,
   fileRailIndent,
   fileRailTitle,
   appendFileRailRow,

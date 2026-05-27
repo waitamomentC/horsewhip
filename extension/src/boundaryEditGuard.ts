@@ -5,6 +5,7 @@ import {
   getEffectiveAllowlist,
   getEffectiveBoundaryLocked,
   isBoundaryLocked,
+  isGuardActive,
   setBoundaryLocked,
 } from './boundaryAllowlist';
 import {
@@ -70,7 +71,7 @@ export async function shouldBlockEdit(
   rel: string,
 ): Promise<{ block: boolean; allowed: string[]; reason?: 'no-pasture' | 'outside-pasture' }> {
   const { mode } = editGuardConfig();
-  if (mode === 'off') return { block: false, allowed: [] };
+  if (mode === 'off' || !isGuardActive()) return { block: false, allowed: [] };
 
   const locked = await getEffectiveBoundaryLocked(workspaceRoot);
   const allowed = locked ? await getEffectiveAllowlist(workspaceRoot) : [];

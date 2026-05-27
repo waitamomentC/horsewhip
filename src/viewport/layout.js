@@ -80,17 +80,44 @@ function fileRailScrollViewportH() {
   return el?.clientHeight || hw.els.graphViewport?.clientHeight || 600;
 }
 
+function laneCountForScroll(laneCount) {
+  return Math.max(laneCount, 1);
+}
+
+function laneBlockHeight(laneCount) {
+  const n = hw.laneCountForScroll(laneCount);
+  return hw.CONFIG.RULER_HEIGHT + n * hw.CONFIG.LANE_HEIGHT + hw.CONFIG.LANE_BOTTOM_PAD;
+}
+
+function graphSvgHeight(laneCount) {
+  return hw.laneBlockHeight(laneCount) + hw.CONFIG.MARGIN.top + hw.CONFIG.MARGIN.bottom;
+}
+
+function fileRailScrollPadHeight() {
+  return hw.CONFIG.LANE_BOTTOM_PAD + hw.CONFIG.MARGIN.top + hw.CONFIG.MARGIN.bottom;
+}
+
+function maxVerticalScroll() {
+  const vpH = hw.els.graphViewport?.clientHeight ?? hw.fileRailScrollViewportH();
+  const catalog = hw.state.catalog;
+  if (!catalog || !vpH) return hw.fileRailMaxScroll();
+  return Math.max(0, hw.graphSvgHeight(catalog.lanes.length) - vpH);
+}
+
 function fileRailMaxScroll() {
   const inner = hw.els.fileRailInner;
   const scrollEl = hw.fileRailScrollEl();
   if (!inner || !scrollEl) return 0;
-  return Math.max(0, inner.offsetHeight - scrollEl.clientHeight);
+  const fromDom = Math.max(0, inner.offsetHeight - scrollEl.clientHeight);
+  const catalog = hw.state.catalog;
+  if (!catalog) return fromDom;
+  return Math.max(fromDom, hw.maxVerticalScroll());
 }
 
 function scrollTopForLaneCenter(laneIndex) {
   const vpH = hw.fileRailScrollViewportH();
   const laneY = hw.laneCenterY(laneIndex);
-  const maxScroll = hw.fileRailMaxScroll();
+  const maxScroll = hw.maxVerticalScroll();
   return Math.max(0, Math.min(maxScroll, laneY - vpH / 2));
 }
 
@@ -114,7 +141,7 @@ function animateViewportTo(targetPanX, targetScrollTop, duration = 420) {
   const startPan = hw.state.panX ?? bounds.panMin;
   const startScroll = hw.state.scrollTop ?? 0;
   const endPan = hw.clampPan(targetPanX, bounds);
-  const maxScroll = hw.fileRailMaxScroll();
+  const maxScroll = hw.maxVerticalScroll();
   const endScroll = Math.max(0, Math.min(maxScroll, targetScrollTop));
   const needMove = Math.abs(endPan - startPan) > 0.5 || Math.abs(endScroll - startScroll) > 0.5;
 
@@ -351,7 +378,7 @@ function nudgePan(delta) {
 
 function nudgeVerticalScroll(delta) {
   hw.stopViewportAnimation();
-  const max = hw.fileRailMaxScroll();
+  const max = hw.maxVerticalScroll();
   hw.state.scrollTop = Math.max(0, Math.min(max, hw.state.scrollTop + delta));
   hw.applyGraphTransformImmediate();
   hw.syncFileRailScrollFromState();
@@ -372,6 +399,11 @@ Object.assign(hw, {
   findLaneIndexForFilePath,
   fileRailScrollEl,
   fileRailScrollViewportH,
+  laneCountForScroll,
+  laneBlockHeight,
+  graphSvgHeight,
+  fileRailScrollPadHeight,
+  maxVerticalScroll,
   fileRailMaxScroll,
   scrollTopForLaneCenter,
   syncFileRailScrollFromState,

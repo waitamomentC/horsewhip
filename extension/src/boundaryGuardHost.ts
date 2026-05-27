@@ -9,6 +9,7 @@ import {
   getEffectiveAllowlist,
   getEffectiveBoundaryLocked,
   getEffectiveLockTargets,
+  isGuardActive,
 } from './boundaryAllowlist';
 import { evaluateBranchLock } from './boundaryLock';
 import {
@@ -103,6 +104,15 @@ export async function notifyBoundaryArmed(workspaceRoot: string, files: string[]
 }
 
 export async function evaluateCommitGuard(workspaceRoot: string): Promise<CommitGuardVerdict> {
+  if (!isGuardActive()) {
+    const actual = await fetchWorkingTreeChangedFiles(workspaceRoot);
+    const result = computeBoundaryGuard([], actual);
+    lastResult = result;
+    updateStatusBar(result);
+    pushGuardStatus({ ...result, guardActive: false });
+    return { allowed: true, result };
+  }
+
   const locked = await getEffectiveBoundaryLocked(workspaceRoot);
   const allowlist = locked ? await getEffectiveAllowlist(workspaceRoot) : [];
   const actual = await fetchWorkingTreeChangedFiles(workspaceRoot);
@@ -340,6 +350,7 @@ function pushGuardStatus(payload: BoundaryGuardResult | Record<string, unknown>)
     : '';
   notifyWebview?.({
     type: 'guardStatus',
+    guardActive: isGuardActive(),
     hasBoundary: result.hasBoundary,
     ok: result.ok,
     allowed: result.allowed,

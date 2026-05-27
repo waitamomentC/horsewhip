@@ -30,6 +30,10 @@
       if (!vscode || !text) return;
       vscode.postMessage({ type: 'insertBoundaryToChat', text });
     },
+    setGuardActive(active) {
+      if (!vscode) return;
+      vscode.postMessage({ type: 'setGuardActive', active: Boolean(active) });
+    },
   };
 
   function wirePreviewButtons() {
@@ -160,15 +164,50 @@
     vscode.postMessage({ type: 'openExternalUrl', url: target });
   }
 
+  function syncGuardArmFromHost(active) {
+    if (window.HorsewhipApp?.setGuardActive) {
+      window.HorsewhipApp.setGuardActive(active, { notifyHost: false });
+      return;
+    }
+    const wrap = document.getElementById('guard-arm-wrap');
+    const btn = document.getElementById('btn-guard-arm');
+    const lamp = document.getElementById('guard-arm-lamp');
+    const on = Boolean(active);
+    document.body.classList.toggle('hw-guard-inactive', !on);
+    document.body.classList.toggle('hw-guard-active', on);
+    if (wrap) {
+      wrap.classList.toggle('plugin-guard__arm-wrap--on', on);
+      wrap.classList.toggle('plugin-guard__arm-wrap--off', !on);
+    }
+    if (btn) {
+      btn.textContent = on ? '失效' : '激活';
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
+    if (lamp) lamp.setAttribute('aria-label', on ? '守门已激活' : '守门未激活');
+  }
+
   function applyGuardStatus(msg) {
     const statusEl = document.getElementById('plugin-guard-status');
     const btnCorrect = document.getElementById('btn-guard-correct');
     const btnRevert = document.getElementById('btn-guard-revert');
     if (!statusEl) return;
+    if (msg.guardActive === false) {
+      syncGuardArmFromHost(false);
+    } else if (msg.guardActive === true) {
+      syncGuardArmFromHost(true);
+    }
+    statusEl.className = 'plugin-guard__status';
+    if (msg.guardActive === false) {
+      statusEl.classList.add('plugin-guard__status--idle');
+      statusEl.textContent = '守门 · 未激活';
+      if (btnCorrect) btnCorrect.hidden = true;
+      if (btnRevert) btnRevert.hidden = true;
+      return;
+    }
     statusEl.className = 'plugin-guard__status';
     if (!msg.hasBoundary) {
       statusEl.classList.add('plugin-guard__status--idle');
-      statusEl.textContent = '守门 · 未划定';
+      statusEl.textContent = '守门 · 已激活 · 未圈定';
       if (btnCorrect) btnCorrect.hidden = true;
       if (btnRevert) btnRevert.hidden = true;
       return;
@@ -197,7 +236,40 @@
     if (btnRevert) btnRevert.hidden = false;
   }
 
+  function wireGuardArmControl() {
+    const btn = document.getElementById('btn-guard-arm');
+    const wrap = document.getElementById('guard-arm-wrap');
+    if (!btn || btn.dataset.hwBridgeBound === '1') return;
+    btn.dataset.hwBridgeBound = '1';
+
+    const toggle = () => {
+      const cur = btn.getAttribute('aria-pressed') === 'true';
+      const next = !cur;
+      if (window.HorsewhipApp?.setGuardActive) {
+        window.HorsewhipApp.setGuardActive(next);
+      } else {
+        syncGuardArmFromHost(next);
+        window.HorsewhipPluginBridge?.setGuardActive?.(next);
+      }
+    };
+
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggle();
+    });
+    wrap?.addEventListener('click', (e) => {
+      if (e.target === wrap || e.target?.classList?.contains('plugin-guard__lamp')) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggle();
+      }
+    });
+    syncGuardArmFromHost(false);
+  }
+
   function wireGuardBar() {
+    wireGuardArmControl();
     document.getElementById('btn-guard-check')?.addEventListener('click', () => {
       if (vscode) vscode.postMessage({ type: 'guardCheck' });
     });
@@ -481,6 +553,8 @@
 
     if (msg.type === 'repoStatus') {
       applyRepoStatus(msg);
+      if (msg.guardActive === true) syncGuardArmFromHost(true);
+      else if (msg.guardActive === false) syncGuardArmFromHost(false);
       return;
     }
 
@@ -596,8 +670,11 @@
     wireCommitPrompt();
     wireGuardBar();
     wirePluginBar();
+    window.HorsewhipApp?.initGuardArmControl?.();
     if (startHostIfReady()) return;
     whenHorsewhipAppReady(() => {
+      wireGuardArmControl();
+      window.HorsewhipApp?.initGuardArmControl?.();
       startHostIfReady();
     });
   }
@@ -607,6 +684,8 @@
     wireCommitPrompt();
     wireGuardBar();
     wirePluginBar();
+    wireGuardArmControl();
+    window.HorsewhipApp?.initGuardArmControl?.();
   } else if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', boot);
   } else {

@@ -186,7 +186,7 @@ function renderGraphNodeEntry(nodeG, node, bundles, yScale) {
 function prepareGraphShell(catalog) {
   hw.initSvg(catalog.contentHeight);
   const m = hw.CONFIG.MARGIN;
-  const innerH = hw.CONFIG.RULER_HEIGHT + Math.max(catalog.lanes.length, 1) * hw.CONFIG.LANE_HEIGHT;
+  const innerH = hw.laneBlockHeight(catalog.lanes.length);
   const bounds = hw.computePanBounds();
   if (hw.state.panX === null && hw.state.parsed) {
     hw.state.panX = hw.panXForHeadFocus(hw.state.parsed);
@@ -209,6 +209,7 @@ function prepareGraphShell(catalog) {
 function prepareFileRailAllRows(lanes) {
   const inner = hw.prepareFileRailShell(lanes);
   lanes.forEach((lane) => inner.appendChild(hw.appendFileRailRow(lane)));
+  hw.ensureFileRailScrollPad();
   hw.syncFileRailFocusHighlight();
   hw.syncFileRailBoundaryHighlight();
   hw.syncBranchLaneHighlight();
@@ -304,6 +305,7 @@ function renderBusesInRange(start, end) {
   if (!ctx || !catalog || !parsed) return;
 
   ctx.busG.selectAll('*').remove();
+  if (!hw.SHOW_COMMIT_BUS_LINES) return;
   const { lanes, focusGraphX } = catalog;
   const yScale = ctx.yScale;
 
@@ -379,10 +381,7 @@ function finalizeGraphView(catalog) {
   hw.refreshNodeIndex();
   hw.setPulseNode(hw.state.pulseNodeId);
   hw.runGraphEntrance();
-  const maxScroll = Math.min(
-    Math.max(0, catalog.contentHeight - hw.els.graphViewport.clientHeight),
-    hw.fileRailMaxScroll(),
-  );
+  const maxScroll = hw.maxVerticalScroll();
   hw.state.scrollTop = Math.min(hw.state.scrollTop, maxScroll);
   hw.applyGraphTransform();
   hw.syncFileRailScrollFromState();

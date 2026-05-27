@@ -57,9 +57,11 @@ function readAllowlistRecord() {
   try {
     const data = JSON.parse(fs.readFileSync(file, 'utf8'));
     const allowed = Array.isArray(data.allowed) ? data.allowed : [];
-    const armed = Boolean(data.locked) && allowed.length > 0;
+    const guardActive = Boolean(data.guardActive);
+    const locked = Boolean(data.locked) && allowed.length > 0;
     return {
-      armed,
+      guardActive,
+      armed: guardActive && locked,
       allowed,
       targets: Array.isArray(data.targets) ? data.targets : [],
     };
@@ -162,7 +164,11 @@ function writeCommitBlockedMarker(allowed, overreach) {
 function main() {
   const rec = readAllowlistRecord();
   const actualEarly = changedFiles();
-  if (!rec || !rec.armed) {
+  if (!rec || !rec.guardActive) {
+    clearCommitBlockedMarker();
+    process.exit(0);
+  }
+  if (!rec.armed) {
     if (actualEarly.length > 0) {
       console.error('');
       console.error('【horsewhip · commit 已拦截】');

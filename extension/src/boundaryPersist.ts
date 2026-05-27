@@ -23,6 +23,8 @@ export type PersistedAllowlist = {
   targets?: PersistedLockTarget[];
   /** git branch --show-current when lock was armed */
   currentBranch?: string;
+  /** 用户点击「激活」后守门才生效（默认不激活） */
+  guardActive?: boolean;
 };
 
 export function allowlistFilePath(workspaceRoot: string): string {
@@ -43,6 +45,7 @@ export async function persistAllowlistToDisk(
   locked = false,
   targets: PersistedLockTarget[] = [],
   currentBranch = '',
+  guardActive = false,
 ): Promise<void> {
   const file = allowlistFilePath(workspaceRoot);
   const dir = path.dirname(file);
@@ -56,6 +59,7 @@ export async function persistAllowlistToDisk(
     locked: isLocked ? true : undefined,
     targets: isLocked && targets.length ? targets : undefined,
     currentBranch: isLocked && currentBranch ? currentBranch : undefined,
+    guardActive: guardActive ? true : undefined,
   };
   await fs.promises.writeFile(file, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 }

@@ -10,6 +10,8 @@
     RULER_HEIGHT: 24,
     MARGIN: { top: 7, right: 29, bottom: 17, left: 28 },
     LANE_HEIGHT: 31,
+    /** 最底泳道 Vn 标签在节点下方，需额外可滚动高度 */
+    LANE_BOTTOM_PAD: 22,
     FUTURE_COLUMNS: 120,
     RULER_PRESET: 100,
     RULER_EXPAND_THRESHOLD: 70,
@@ -30,6 +32,7 @@
   var BRANCH_RAIL_ENABLED = false;
   var BRANCH_FUSION_ENABLED = false;
   var BOUNDARY_BAR_ENABLED = false;
+  var SHOW_COMMIT_BUS_LINES = false;
   var LANE_LAYOUT_KEY = "hw-lane-layout";
   var WHIP_SOUND_MUTE_KEY = "horsewhip:whip-sound-muted";
   var WHIP_CRACK_AUDIO_DEFAULT = "sound/whip.wav";
@@ -50,6 +53,7 @@
     BRANCH_RAIL_ENABLED,
     BRANCH_FUSION_ENABLED,
     BOUNDARY_BAR_ENABLED,
+    SHOW_COMMIT_BUS_LINES,
     LANE_LAYOUT_KEY,
     WHIP_SOUND_MUTE_KEY,
     WHIP_CRACK_AUDIO_DEFAULT,
@@ -103,7 +107,9 @@
     highlightBranchName: null,
     selectedBranchNames: /* @__PURE__ */ new Set(),
     viewportInteracting: false,
-    headSnapshotBeforeLoad: null
+    headSnapshotBeforeLoad: null,
+    /** 插件顶栏「激活」后才启用写盘/commit 守门 */
+    guardActive: false
   };
   var whipAudioContext = null;
   var whipCrackBuffer = null;
@@ -1731,7 +1737,7 @@
       headHash: head.hash,
       headCommit: head,
       headMainlineV,
-      contentHeight: hw.CONFIG.RULER_HEIGHT + Math.max(lanes.length, 1) * hw.CONFIG.LANE_HEIGHT + hw.CONFIG.MARGIN.top + hw.CONFIG.MARGIN.bottom
+      contentHeight: hw.graphSvgHeight(lanes.length)
     };
   }
   Object.assign(hw, {
@@ -2663,16 +2669,38 @@ git reset --hard ${hash}`;
     const el = hw.fileRailScrollEl();
     return el?.clientHeight || hw.els.graphViewport?.clientHeight || 600;
   }
+  function laneCountForScroll(laneCount) {
+    return Math.max(laneCount, 1);
+  }
+  function laneBlockHeight(laneCount) {
+    const n = hw.laneCountForScroll(laneCount);
+    return hw.CONFIG.RULER_HEIGHT + n * hw.CONFIG.LANE_HEIGHT + hw.CONFIG.LANE_BOTTOM_PAD;
+  }
+  function graphSvgHeight(laneCount) {
+    return hw.laneBlockHeight(laneCount) + hw.CONFIG.MARGIN.top + hw.CONFIG.MARGIN.bottom;
+  }
+  function fileRailScrollPadHeight() {
+    return hw.CONFIG.LANE_BOTTOM_PAD + hw.CONFIG.MARGIN.top + hw.CONFIG.MARGIN.bottom;
+  }
+  function maxVerticalScroll() {
+    const vpH = hw.els.graphViewport?.clientHeight ?? hw.fileRailScrollViewportH();
+    const catalog = hw.state.catalog;
+    if (!catalog || !vpH) return hw.fileRailMaxScroll();
+    return Math.max(0, hw.graphSvgHeight(catalog.lanes.length) - vpH);
+  }
   function fileRailMaxScroll() {
     const inner = hw.els.fileRailInner;
     const scrollEl = hw.fileRailScrollEl();
     if (!inner || !scrollEl) return 0;
-    return Math.max(0, inner.offsetHeight - scrollEl.clientHeight);
+    const fromDom = Math.max(0, inner.offsetHeight - scrollEl.clientHeight);
+    const catalog = hw.state.catalog;
+    if (!catalog) return fromDom;
+    return Math.max(fromDom, hw.maxVerticalScroll());
   }
   function scrollTopForLaneCenter(laneIndex) {
     const vpH = hw.fileRailScrollViewportH();
     const laneY = hw.laneCenterY(laneIndex);
-    const maxScroll = hw.fileRailMaxScroll();
+    const maxScroll = hw.maxVerticalScroll();
     return Math.max(0, Math.min(maxScroll, laneY - vpH / 2));
   }
   function syncFileRailScrollFromState() {
@@ -2693,7 +2721,7 @@ git reset --hard ${hash}`;
     const startPan = hw.state.panX ?? bounds.panMin;
     const startScroll = hw.state.scrollTop ?? 0;
     const endPan = hw.clampPan(targetPanX, bounds);
-    const maxScroll = hw.fileRailMaxScroll();
+    const maxScroll = hw.maxVerticalScroll();
     const endScroll = Math.max(0, Math.min(maxScroll, targetScrollTop));
     const needMove = Math.abs(endPan - startPan) > 0.5 || Math.abs(endScroll - startScroll) > 0.5;
     const finish = () => {
@@ -2889,7 +2917,7 @@ git reset --hard ${hash}`;
   }
   function nudgeVerticalScroll(delta) {
     hw.stopViewportAnimation();
-    const max = hw.fileRailMaxScroll();
+    const max = hw.maxVerticalScroll();
     hw.state.scrollTop = Math.max(0, Math.min(max, hw.state.scrollTop + delta));
     hw.applyGraphTransformImmediate();
     hw.syncFileRailScrollFromState();
@@ -2909,6 +2937,11 @@ git reset --hard ${hash}`;
     findLaneIndexForFilePath,
     fileRailScrollEl,
     fileRailScrollViewportH,
+    laneCountForScroll,
+    laneBlockHeight,
+    graphSvgHeight,
+    fileRailScrollPadHeight,
+    maxVerticalScroll,
     fileRailMaxScroll,
     scrollTopForLaneCenter,
     syncFileRailScrollFromState,
@@ -3461,7 +3494,7 @@ git reset --hard ${hash}`;
   function prepareGraphShell(catalog) {
     hw.initSvg(catalog.contentHeight);
     const m = hw.CONFIG.MARGIN;
-    const innerH = hw.CONFIG.RULER_HEIGHT + Math.max(catalog.lanes.length, 1) * hw.CONFIG.LANE_HEIGHT;
+    const innerH = hw.laneBlockHeight(catalog.lanes.length);
     const bounds = hw.computePanBounds();
     if (hw.state.panX === null && hw.state.parsed) {
       hw.state.panX = hw.panXForHeadFocus(hw.state.parsed);
@@ -3483,6 +3516,7 @@ git reset --hard ${hash}`;
   function prepareFileRailAllRows(lanes) {
     const inner = hw.prepareFileRailShell(lanes);
     lanes.forEach((lane) => inner.appendChild(hw.appendFileRailRow(lane)));
+    hw.ensureFileRailScrollPad();
     hw.syncFileRailFocusHighlight();
     hw.syncFileRailBoundaryHighlight();
     hw.syncBranchLaneHighlight();
@@ -3544,6 +3578,7 @@ git reset --hard ${hash}`;
     const parsed = hw.state.parsed;
     if (!ctx || !catalog || !parsed) return;
     ctx.busG.selectAll("*").remove();
+    if (!hw.SHOW_COMMIT_BUS_LINES) return;
     const { lanes, focusGraphX } = catalog;
     const yScale = ctx.yScale;
     parsed.commits.forEach((commit) => {
@@ -3614,10 +3649,7 @@ git reset --hard ${hash}`;
     hw.refreshNodeIndex();
     hw.setPulseNode(hw.state.pulseNodeId);
     hw.runGraphEntrance();
-    const maxScroll = Math.min(
-      Math.max(0, catalog.contentHeight - hw.els.graphViewport.clientHeight),
-      hw.fileRailMaxScroll()
-    );
+    const maxScroll = hw.maxVerticalScroll();
     hw.state.scrollTop = Math.min(hw.state.scrollTop, maxScroll);
     hw.applyGraphTransform();
     hw.syncFileRailScrollFromState();
@@ -3769,7 +3801,7 @@ git reset --hard ${hash}`;
       const isLit = !!uploadCommit && !isFuture;
       const isHead = v === headUploadIdx;
       const isBranchOnly = isLit && uploadCommit && !uploadCommit.isMainline;
-      gridG.append("line").attr("class", `version-ruler__vline${isFuture ? " version-ruler__vline--future" : ""}`).attr("x1", vx).attr("x2", vx).attr("y1", baseline).attr("y2", innerH);
+      gridG.append("line").attr("class", `version-ruler__vline${isFuture ? " version-ruler__vline--future" : ""}${isLit ? " version-ruler__vline--lit" : ""}`).attr("x1", vx).attr("x2", vx).attr("y1", baseline).attr("y2", innerH);
       chromeG.append("line").attr("class", [
         "version-ruler__tick",
         isLit ? "version-ruler__tick--lit" : "",
@@ -3823,8 +3855,23 @@ git reset --hard ${hash}`;
     spacer.style.height = `${hw.CONFIG.RULER_HEIGHT}px`;
     spacer.setAttribute("aria-hidden", "true");
     inner.appendChild(spacer);
-    inner.style.height = `${hw.CONFIG.RULER_HEIGHT + Math.max(lanes.length, 1) * hw.CONFIG.LANE_HEIGHT}px`;
+    const laneCount = hw.laneCountForScroll(lanes.length);
+    inner.style.height = `${hw.graphSvgHeight(laneCount)}px`;
     return inner;
+  }
+  function ensureFileRailScrollPad() {
+    const inner = hw.els.fileRailInner;
+    if (!inner) return;
+    const padH = hw.fileRailScrollPadHeight();
+    let pad = inner.querySelector(".file-rail__scroll-pad");
+    if (!pad) {
+      pad = document.createElement("div");
+      pad.className = "file-rail__scroll-pad";
+      pad.setAttribute("aria-hidden", "true");
+      inner.appendChild(pad);
+    }
+    pad.style.height = `${padH}px`;
+    pad.style.flexShrink = "0";
   }
   function fileRailIndent(depth) {
     const step = hw.isPluginHost() ? 14 : 9;
@@ -3919,6 +3966,7 @@ git reset --hard ${hash}`;
   }
   Object.assign(hw, {
     prepareFileRailShell,
+    ensureFileRailScrollPad,
     fileRailIndent,
     fileRailTitle,
     appendFileRailRow
@@ -4469,6 +4517,61 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     showPluginEmptyGit
   });
 
+  // src/ui/guard-arm.js
+  function syncGuardArmButton() {
+    const btn = document.getElementById("btn-guard-arm");
+    const wrap = document.getElementById("guard-arm-wrap");
+    const lamp = document.getElementById("guard-arm-lamp");
+    if (!btn) return;
+    const on = hw.state.guardActive;
+    btn.textContent = on ? "\u5931\u6548" : "\u6FC0\u6D3B";
+    btn.title = on ? "\u5B88\u95E8\u5DF2\u5F00\u542F\uFF1A\u8D8A\u754C\u5199\u76D8\u4F1A\u8FD8\u539F\u3002\u70B9\u51FB\u5173\u95ED\u540E\u53EF\u81EA\u7531\u6539\u7801\u3002" : "\u5B88\u95E8\u672A\u5F00\u542F\uFF1A\u70B9\u51FB\u300C\u6FC0\u6D3B\u300D\u540E\uFF0C\u6325\u97AD\u5708\u5B9A\u624D\u4F1A\u62E6\u6539\u7801\u4E0E commit";
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    if (wrap) {
+      wrap.classList.toggle("plugin-guard__arm-wrap--on", on);
+      wrap.classList.toggle("plugin-guard__arm-wrap--off", !on);
+    }
+    if (lamp) {
+      lamp.setAttribute("aria-label", on ? "\u5B88\u95E8\u5DF2\u6FC0\u6D3B" : "\u5B88\u95E8\u672A\u6FC0\u6D3B");
+    }
+  }
+  function applyGuardActiveUi() {
+    syncGuardArmButton();
+    document.body.classList.toggle("hw-guard-inactive", !hw.state.guardActive);
+  }
+  function setGuardActive(active, { notifyHost = true } = {}) {
+    hw.state.guardActive = Boolean(active);
+    applyGuardActiveUi();
+    document.body.classList.toggle("hw-guard-active", hw.state.guardActive);
+    if (notifyHost && hw.isPluginHost() && window.HorsewhipPluginBridge?.setGuardActive) {
+      window.HorsewhipPluginBridge.setGuardActive(hw.state.guardActive);
+    }
+  }
+  function toggleGuardActive() {
+    setGuardActive(!hw.state.guardActive);
+  }
+  function initGuardArmControl() {
+    if (!hw.isPluginHost()) return;
+    const btn = document.getElementById("btn-guard-arm");
+    if (!btn || btn.dataset.hwBound === "1") return;
+    btn.dataset.hwBound = "1";
+    if (!document.body.classList.contains("hw-guard-active")) {
+      hw.state.guardActive = false;
+      applyGuardActiveUi();
+    }
+  }
+  function onHostGuardActive(active) {
+    hw.state.guardActive = Boolean(active);
+    applyGuardActiveUi();
+  }
+  Object.assign(hw, {
+    initGuardArmControl,
+    setGuardActive,
+    toggleGuardActive,
+    onHostGuardActive,
+    syncGuardArmButton
+  });
+
   // src/audio/whip.js
   var WHIP_ICON_REV = "6";
   var whipFloatNodesForCopy = null;
@@ -4695,7 +4798,43 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
       el.classList.remove("hw-whip-float--crack", "hw-whip-btn--crack");
     }
   }
-  function showWhipFloat(_node, nodesForCopy) {
+  function positionWhipFloat(el, anchorNode) {
+    if (!el || !anchorNode?.id) return;
+    const hit = hw.findNodeGroupEl?.(anchorNode.id)?.querySelector(".node-hit");
+    if (!hit) {
+      el.style.left = "";
+      el.style.top = "";
+      el.style.transform = "";
+      return;
+    }
+    const r = hit.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const offsetX = Math.max(44, r.width * 0.5 + 36);
+    const offsetY = -Math.max(32, r.height * 0.5 + 28);
+    const pad = 48;
+    const x = Math.min(window.innerWidth - pad, Math.max(pad, cx + offsetX));
+    const y = Math.min(window.innerHeight - pad, Math.max(pad, cy + offsetY));
+    el.style.left = `${x}px`;
+    el.style.top = `${y}px`;
+    el.style.right = "auto";
+    el.style.bottom = "auto";
+    el.style.transform = "translate(-50%, -50%)";
+  }
+  var whipFloatRepositionBound = false;
+  function bindWhipFloatReposition() {
+    if (whipFloatRepositionBound) return;
+    whipFloatRepositionBound = true;
+    const reposition = () => {
+      const el = document.getElementById("hw-whip-float");
+      const anchor = hw.whipHostNode?.();
+      if (!el || el.hidden || !anchor) return;
+      hw.positionWhipFloat(el, anchor);
+    };
+    document.getElementById("graph-scroll")?.addEventListener("scroll", reposition, { passive: true });
+    window.addEventListener("resize", reposition, { passive: true });
+  }
+  function showWhipFloat(anchorNode, nodesForCopy) {
     if (!nodesForCopy?.length) {
       hw.hideWhipFloat();
       return;
@@ -4703,6 +4842,8 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     const el = hw.ensureWhipFloatEl();
     whipFloatNodesForCopy = nodesForCopy;
     el.hidden = false;
+    hw.bindWhipFloatReposition();
+    hw.positionWhipFloat(el, anchorNode || hw.whipHostNode?.());
   }
   Object.assign(hw, {
     ensureWhipAudioContext,
@@ -4720,7 +4861,9 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     mountWhipIcon,
     ensureWhipFloatEl,
     hideWhipFloat,
-    showWhipFloat
+    showWhipFloat,
+    positionWhipFloat,
+    bindWhipFloatReposition
   });
 
   // src/app/data.js
@@ -5253,7 +5396,9 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     getModalNode: () => hw.state.modalNode,
     getBoundaryFiles: hw.getBoundaryFilesList,
     buildBoundaryPrompt: hw.buildBoundaryPrompt,
-    clearNodeSelection: hw.clearNodeSelection
+    clearNodeSelection: hw.clearNodeSelection,
+    onHostGuardActive: (active) => hw.onHostGuardActive(active),
+    initGuardArmControl: () => hw.initGuardArmControl()
   };
   window.dispatchEvent(new CustomEvent("horsewhip-app-ready"));
 })();

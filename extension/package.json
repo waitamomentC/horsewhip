@@ -2,7 +2,7 @@
   "name": "horsewhip",
   "displayName": "Horsewhip",
   "description": "File-lane timeline + dual whip guards: aim on graph, instant revert on illegal writes, boundary metadata in .git/horsewhip—expand fence in UI before editing outside.",
-  "version": "1.0.9",
+  "version": "1.0.13",
   "publisher": "horsewhip",
   "license": "AGPL-3.0-or-later",
   "icon": "media/horsewhip-icon-128.png",

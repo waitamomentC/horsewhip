@@ -11,6 +11,7 @@ export type { PersistedLockTarget as LockTarget };
 let allowlist: string[] = [];
 let lockTargets: PersistedLockTarget[] = [];
 let boundaryLocked = false;
+let guardActive = false;
 let workspaceRootForPersist: string | undefined;
 
 export function setBoundaryAllowlistWorkspaceRoot(root: string | undefined): void {
@@ -25,10 +26,11 @@ export function setBoundaryAllowlistWorkspaceRoot(root: string | undefined): voi
     if (workspaceRootForPersist !== root) return;
     // 不以磁盘为准自动「上锁」——必须本次会话在泳道挥鞭圈定（避免 UI 未圈定却放行）
     boundaryLocked = false;
+    guardActive = false;
     allowlist = [];
     lockTargets = [];
-    if (rec?.locked) {
-      void persistAllowlistToDisk(root, [], false, []);
+    if (rec?.locked || rec?.guardActive) {
+      void persistAllowlistToDisk(root, [], false, [], '', false);
     }
   });
 }
@@ -54,6 +56,7 @@ export async function setBoundaryAllowlist(
       boundaryLocked,
       lockTargets,
       currentBranch,
+      guardActive,
     );
   }
 }
@@ -67,6 +70,26 @@ export function setBoundaryLocked(locked: boolean): void {
       allowlist,
       boundaryLocked,
       lockTargets,
+      '',
+      guardActive,
+    );
+  }
+}
+
+export function isGuardActive(): boolean {
+  return guardActive;
+}
+
+export async function setGuardActive(active: boolean): Promise<void> {
+  guardActive = Boolean(active);
+  if (workspaceRootForPersist) {
+    await persistAllowlistToDisk(
+      workspaceRootForPersist,
+      allowlist,
+      boundaryLocked,
+      lockTargets,
+      '',
+      guardActive,
     );
   }
 }
@@ -112,6 +135,7 @@ export async function clearBoundaryAllowlist(): Promise<void> {
   lockTargets = [];
   boundaryLocked = false;
   if (workspaceRootForPersist) {
-    await persistAllowlistToDisk(workspaceRootForPersist, [], false, []);
+    guardActive = false;
+    await persistAllowlistToDisk(workspaceRootForPersist, [], false, [], '', false);
   }
 }

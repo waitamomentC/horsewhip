@@ -247,7 +247,47 @@ function hideWhipFloat() {
   }
 }
 
-function showWhipFloat(_node, nodesForCopy) {
+/** 小马鞭浮在最后一次点击的节点旁（略偏右上，避免挡住节点）。 */
+function positionWhipFloat(el, anchorNode) {
+  if (!el || !anchorNode?.id) return;
+  const hit = hw.findNodeGroupEl?.(anchorNode.id)?.querySelector('.node-hit');
+  if (!hit) {
+    el.style.left = '';
+    el.style.top = '';
+    el.style.transform = '';
+    return;
+  }
+  const r = hit.getBoundingClientRect();
+  const cx = r.left + r.width / 2;
+  const cy = r.top + r.height / 2;
+  const offsetX = Math.max(44, r.width * 0.5 + 36);
+  const offsetY = -Math.max(32, r.height * 0.5 + 28);
+  const pad = 48;
+  const x = Math.min(window.innerWidth - pad, Math.max(pad, cx + offsetX));
+  const y = Math.min(window.innerHeight - pad, Math.max(pad, cy + offsetY));
+  el.style.left = `${x}px`;
+  el.style.top = `${y}px`;
+  el.style.right = 'auto';
+  el.style.bottom = 'auto';
+  el.style.transform = 'translate(-50%, -50%)';
+}
+
+let whipFloatRepositionBound = false;
+
+function bindWhipFloatReposition() {
+  if (whipFloatRepositionBound) return;
+  whipFloatRepositionBound = true;
+  const reposition = () => {
+    const el = document.getElementById('hw-whip-float');
+    const anchor = hw.whipHostNode?.();
+    if (!el || el.hidden || !anchor) return;
+    hw.positionWhipFloat(el, anchor);
+  };
+  document.getElementById('graph-scroll')?.addEventListener('scroll', reposition, { passive: true });
+  window.addEventListener('resize', reposition, { passive: true });
+}
+
+function showWhipFloat(anchorNode, nodesForCopy) {
   if (!nodesForCopy?.length) {
     hw.hideWhipFloat();
     return;
@@ -255,6 +295,8 @@ function showWhipFloat(_node, nodesForCopy) {
   const el = hw.ensureWhipFloatEl();
   whipFloatNodesForCopy = nodesForCopy;
   el.hidden = false;
+  hw.bindWhipFloatReposition();
+  hw.positionWhipFloat(el, anchorNode || hw.whipHostNode?.());
 }
 
 Object.assign(hw, {
@@ -274,4 +316,6 @@ Object.assign(hw, {
   ensureWhipFloatEl,
   hideWhipFloat,
   showWhipFloat,
+  positionWhipFloat,
+  bindWhipFloatReposition,
 });

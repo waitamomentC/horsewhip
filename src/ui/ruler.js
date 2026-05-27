@@ -26,7 +26,7 @@ function renderVersionRuler(g, model, innerH) {
     const isBranchOnly = isLit && uploadCommit && !uploadCommit.isMainline;
 
     gridG.append('line')
-      .attr('class', `version-ruler__vline${isFuture ? ' version-ruler__vline--future' : ''}`)
+      .attr('class', `version-ruler__vline${isFuture ? ' version-ruler__vline--future' : ''}${isLit ? ' version-ruler__vline--lit' : ''}`)
       .attr('x1', vx)
       .attr('x2', vx)
       .attr('y1', baseline)

@@ -453,8 +453,7 @@ function buildLaneCatalog(parsed) {
     headHash: head.hash,
     headCommit: head,
     headMainlineV,
-    contentHeight: hw.CONFIG.RULER_HEIGHT + Math.max(lanes.length, 1) * hw.CONFIG.LANE_HEIGHT
-      + hw.CONFIG.MARGIN.top + hw.CONFIG.MARGIN.bottom,
+    contentHeight: hw.graphSvgHeight(lanes.length),
   };
 }
 

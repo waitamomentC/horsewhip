@@ -9,6 +9,8 @@ const CONFIG = {
   RULER_HEIGHT: 24,
   MARGIN: { top: 7, right: 29, bottom: 17, left: 28 },
   LANE_HEIGHT: 31,
+  /** 最底泳道 Vn 标签在节点下方，需额外可滚动高度 */
+  LANE_BOTTOM_PAD: 22,
   FUTURE_COLUMNS: 120,
   RULER_PRESET: 100,
   RULER_EXPAND_THRESHOLD: 70,
@@ -33,6 +35,8 @@ const BRANCH_RAIL_ENABLED = false;
 const BRANCH_FUSION_ENABLED = false;
 /** Top "本次边界" bar */
 const BOUNDARY_BAR_ENABLED = false;
+/** 同一 commit 跨泳道的竖向「总线」（易与 C 列网格混淆，默认关） */
+const SHOW_COMMIT_BUS_LINES = false;
 const LANE_LAYOUT_KEY = 'hw-lane-layout';
 const WHIP_SOUND_MUTE_KEY = 'horsewhip:whip-sound-muted';
 /** 官方音效源文件：仓库 `sound/whip.wav`（构建时同步进 extension/media） */
@@ -50,7 +54,7 @@ const LANE_VIEW_OVERSCAN = 4;
 
 Object.assign(hw, {
   CONFIG, ROOT_BUCKET, PER_LANE_VERSION,
-  BRANCH_RAIL_ENABLED, BRANCH_FUSION_ENABLED, BOUNDARY_BAR_ENABLED,
+  BRANCH_RAIL_ENABLED, BRANCH_FUSION_ENABLED, BOUNDARY_BAR_ENABLED, SHOW_COMMIT_BUS_LINES,
   LANE_LAYOUT_KEY, WHIP_SOUND_MUTE_KEY, WHIP_CRACK_AUDIO_DEFAULT,
   LANE_LAYOUT_GROUPED, LANE_LAYOUT_FLAT, LANE_HUES,
   CODE_FILE_RE, CONFIG_FILE_RE, CONFIG_BASENAMES, ICON_SIZE, VERSION_STEP_ICON_SCALE,

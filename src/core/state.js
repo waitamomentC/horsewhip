@@ -38,6 +38,8 @@ const state = {
   selectedBranchNames: new Set(),
   viewportInteracting: false,
   headSnapshotBeforeLoad: null,
+  /** 插件顶栏「激活」后才启用写盘/commit 守门 */
+  guardActive: false,
 };
 
 let whipAudioContext = null;

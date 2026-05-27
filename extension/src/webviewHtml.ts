@@ -98,6 +98,63 @@ export function buildTimelineHtml(
     .plugin-guard__status--warn { color: #fbbf24; }
     .plugin-guard__status--idle { color: #6b7280; }
     .plugin-guard__status--over { color: #f87171; }
+    .plugin-guard__arm-wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-right: 2px;
+    }
+    .plugin-guard__lamp {
+      width: 11px;
+      height: 11px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      border: 1px solid rgba(255,255,255,.35);
+      transition: background 0.2s ease, box-shadow 0.2s ease;
+    }
+    .plugin-guard__arm-wrap--off .plugin-guard__lamp {
+      background: #ff4040;
+      box-shadow:
+        0 0 6px #ff5555,
+        0 0 14px rgba(255, 70, 70, 0.95),
+        0 0 22px rgba(255, 40, 40, 0.55);
+    }
+    .plugin-guard__arm-wrap--on .plugin-guard__lamp {
+      background: #2dff6a;
+      border-color: rgba(180, 255, 200, 0.55);
+      box-shadow:
+        0 0 6px #3dff78,
+        0 0 14px rgba(50, 255, 110, 0.95),
+        0 0 22px rgba(34, 240, 90, 0.55);
+    }
+    .plugin-guard__arm {
+      padding: 3px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,.18);
+      background: rgba(255,255,255,.04);
+      color: #c4cad6;
+      font: 600 11px Inter, system-ui, sans-serif;
+      cursor: pointer;
+    }
+    .plugin-guard__arm:hover { background: rgba(255,255,255,.1); color: #fff; }
+    .plugin-guard__arm-wrap--on .plugin-guard__arm {
+      border-color: rgba(74, 222, 128, .45);
+      background: rgba(74, 222, 128, .12);
+      color: #4ade80;
+    }
+    body.hw-guard-inactive .hw-boundary__title::after {
+      content: ' · 守门未激活';
+      font-weight: 500;
+      color: #6b7280;
+    }
+    .version-ruler__vline {
+      stroke: rgba(255,255,255,.12);
+      stroke-width: 1;
+      opacity: 0.18;
+      pointer-events: none;
+    }
+    .version-ruler__vline--lit { opacity: 0.26; }
+    .version-ruler__vline--future { opacity: 0.08; }
     .hw-workspace {
       flex: 1 1 auto; min-height: 0;
       display: flex; flex-direction: column;
@@ -219,42 +276,6 @@ export function buildTimelineHtml(
     body.hw-plugin .file-rail__item--folder { cursor: pointer; }
     body.hw-plugin .file-rail__item--folder-header { cursor: default; }
     body.hw-plugin .file-rail__item--folder:hover { background: rgba(255,255,255,.06); }
-    .hw-terminal {
-      flex: 0 0 min(38vh, 280px);
-      display: flex; flex-direction: column;
-      border-top: 1px solid rgba(255,255,255,.1);
-      background: #07080a;
-      min-height: 0;
-      overflow: hidden;
-    }
-    .hw-terminal[hidden] { display: none !important; }
-    .hw-terminal__body {
-      flex: 1 1 auto; min-height: 0;
-      padding: 4px 8px 6px;
-      overflow: hidden;
-    }
-    .hw-terminal__body .xterm { height: 100%; }
-    .hw-terminal__body .xterm-viewport { overflow-y: auto !important; }
-    .hw-dock {
-      flex: 0 0 32px;
-      display: flex; align-items: center;
-      padding: 0 10px;
-      border-top: 1px solid rgba(255,255,255,.08);
-      background: #0a0b0e;
-    }
-    .hw-dock__btn {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 4px 10px; border-radius: 5px;
-      border: 1px solid rgba(255,255,255,.12);
-      background: transparent; color: #c4cad6;
-      font: 500 11px Inter, sans-serif; cursor: pointer;
-    }
-    .hw-dock__btn:hover { background: rgba(255,255,255,.06); color: #fff; }
-    .hw-dock__btn--active {
-      background: rgba(109,124,232,.22);
-      border-color: #6d7ce8; color: #e8eaed;
-    }
-    .hw-dock__btn-icon { font-family: 'JetBrains Mono', monospace; font-size: 11px; opacity: .85; }
     .plugin-bar {
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
       padding: 6px 12px; border-bottom: 1px solid rgba(255,255,255,.08);
@@ -445,7 +466,11 @@ export function buildTimelineHtml(
     </span>
     <span class="plugin-bar__sep">·</span>
     <span class="plugin-guard" id="plugin-guard">
-      <span class="plugin-guard__status plugin-guard__status--idle" id="plugin-guard-status">守门 · 未划定</span>
+      <span class="plugin-guard__arm-wrap plugin-guard__arm-wrap--off" id="guard-arm-wrap">
+        <span class="plugin-guard__lamp" id="guard-arm-lamp" role="img" aria-label="守门未激活"></span>
+        <button type="button" class="plugin-guard__arm" id="btn-guard-arm" aria-pressed="false">激活</button>
+      </span>
+      <span class="plugin-guard__status plugin-guard__status--idle" id="plugin-guard-status">守门 · 未激活</span>
       <button type="button" class="plugin-bar__btn" id="btn-guard-check" title="对比 git 改动与泳道边界">检查越界</button>
       <button type="button" class="plugin-bar__btn" id="btn-guard-correct" hidden title="把越界纠正文案插入 Chat">插入纠正</button>
       <button type="button" class="plugin-bar__btn" id="btn-guard-revert" hidden title="还原越界文件到 HEAD">还原越界</button>
@@ -520,14 +545,6 @@ export function buildTimelineHtml(
       </div>
     </section>
   </main>
-  <div class="hw-terminal" id="hw-terminal" hidden>
-    <div id="hw-terminal-host" class="hw-terminal__body"></div>
-  </div>
-  <footer class="hw-dock">
-    <button type="button" class="hw-dock__btn" id="btn-toggle-terminal" title="打开/关闭终端" aria-pressed="false">
-      <span class="hw-dock__btn-icon">&gt;_</span> 终端
-    </button>
-  </footer>
   </div>
   <div class="toast toast--error" id="parse-error" hidden></div>
   <div class="toast toast--warn toast--pager" id="large-data-warn" hidden>
@@ -669,7 +686,6 @@ export function buildTimelineHtml(
   </script>
   <script src="${u('panel-bridge.js')}"></script>
   <script src="${u('remote-wizard.js')}"></script>
-  <script src="${u('terminal-bridge.js')}"></script>
   <script async src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
   <script async src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
 </body>

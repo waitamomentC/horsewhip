@@ -21,6 +21,7 @@ import '../ui/branches.js';
 import '../ui/modal.js';
 import '../ui/tooltip.js';
 import '../ui/plugin.js';
+import '../ui/guard-arm.js';
 import '../audio/whip.js';
 import './data.js';
 import './wire.js';
@@ -67,6 +68,8 @@ window.HorsewhipApp = {
   getBoundaryFiles: hw.getBoundaryFilesList,
   buildBoundaryPrompt: hw.buildBoundaryPrompt,
   clearNodeSelection: hw.clearNodeSelection,
+  onHostGuardActive: (active) => hw.onHostGuardActive(active),
+  initGuardArmControl: () => hw.initGuardArmControl(),
 };
 
 window.dispatchEvent(new CustomEvent('horsewhip-app-ready'));
