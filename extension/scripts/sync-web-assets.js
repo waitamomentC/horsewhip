@@ -26,11 +26,34 @@ const guardDest = path.join(media, guardScript);
 fs.copyFileSync(guardSrc, guardDest);
 console.log(`synced scripts/${guardScript} → extension/media/${guardScript}`);
 
+const soundDir = path.join(root, 'sound');
+const officialWav = path.join(soundDir, 'whip.wav');
+const copiedAudio = new Set();
+
+function syncWhipAudio(srcPath, destName) {
+  if (!fs.existsSync(srcPath) || copiedAudio.has(destName)) return;
+  const dest = path.join(media, destName);
+  fs.copyFileSync(srcPath, dest);
+  copiedAudio.add(destName);
+}
+
+if (!fs.existsSync(officialWav)) {
+  console.warn('warn: sound/whip.wav missing — run build after placing official whip audio');
+} else {
+  syncWhipAudio(officialWav, 'whip.wav');
+  syncWhipAudio(officialWav, 'whip-crack.wav');
+  console.log('synced official whip audio → extension/media/whip.wav');
+}
+
+const soundNames = ['whip.mp3', 'whip.ogg', 'whip.m4a', ...whipAudioNames];
+for (const name of soundNames) {
+  const fromSound = path.join(soundDir, name);
+  if (fs.existsSync(fromSound)) syncWhipAudio(fromSound, name);
+}
+
 const mediaSrc = path.join(root, 'media');
 for (const name of whipAudioNames) {
   const src = path.join(mediaSrc, name);
   if (!fs.existsSync(src)) continue;
-  const dest = path.join(media, name);
-  fs.copyFileSync(src, dest);
-  console.log(`synced media/${name} → extension/media/${name}`);
+  syncWhipAudio(src, name);
 }

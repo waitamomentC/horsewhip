@@ -2,7 +2,7 @@
   "name": "horsewhip",
   "displayName": "Horsewhip",
   "description": "Git file timeline · GitHub SSH publish · workspace git only",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "publisher": "horsewhip",
   "license": "AGPL-3.0-or-later",
   "repository": {

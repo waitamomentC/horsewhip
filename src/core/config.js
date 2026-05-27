@@ -35,7 +35,8 @@ const BRANCH_FUSION_ENABLED = false;
 const BOUNDARY_BAR_ENABLED = false;
 const LANE_LAYOUT_KEY = 'hw-lane-layout';
 const WHIP_SOUND_MUTE_KEY = 'horsewhip:whip-sound-muted';
-const WHIP_CRACK_AUDIO_DEFAULT = 'media/whip-crack.mp3';
+/** 官方音效源文件：仓库 `sound/whip.wav`（构建时同步进 extension/media） */
+const WHIP_CRACK_AUDIO_DEFAULT = 'sound/whip.wav';
 const LANE_LAYOUT_GROUPED = 'grouped';
 const LANE_LAYOUT_FLAT = 'flat';
 const LANE_HUES = [210, 160, 280, 35, 350, 120, 45, 300, 190, 15, 250, 80];

@@ -32,7 +32,7 @@
   var BOUNDARY_BAR_ENABLED = false;
   var LANE_LAYOUT_KEY = "hw-lane-layout";
   var WHIP_SOUND_MUTE_KEY = "horsewhip:whip-sound-muted";
-  var WHIP_CRACK_AUDIO_DEFAULT = "media/whip-crack.mp3";
+  var WHIP_CRACK_AUDIO_DEFAULT = "sound/whip.wav";
   var LANE_LAYOUT_GROUPED2 = "grouped";
   var LANE_LAYOUT_FLAT2 = "flat";
   var LANE_HUES = [210, 160, 280, 35, 350, 120, 45, 300, 190, 15, 250, 80];
@@ -4390,19 +4390,25 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
   function getWhipCrackAudioUrl() {
     const meta = document.querySelector('meta[name="horsewhip-whip-audio"]');
     const url = meta?.getAttribute("content")?.trim();
-    return url || hw.WHIP_CRACK_AUDIO_DEFAULT;
+    if (url) return url;
+    if (hw.isPluginHost()) return "media/whip.wav";
+    return hw.WHIP_CRACK_AUDIO_DEFAULT;
   }
   function whipCrackAudioCandidates(primary) {
     const list = [primary];
     if (/^https?:/i.test(primary) || primary.includes("vscode-webview://")) return list;
     const stem = primary.replace(/\.(mp3|wav|ogg|m4a|webm)$/i, "");
     if (stem !== primary) {
-      for (const ext of ["mp3", "wav", "ogg", "m4a"]) {
+      for (const ext of ["wav", "mp3", "ogg", "m4a"]) {
         const alt = `${stem}.${ext}`;
         if (!list.includes(alt)) list.push(alt);
       }
     } else if (!primary.includes(".")) {
-      for (const ext of ["mp3", "wav", "ogg"]) list.push(`${primary}.${ext}`);
+      for (const ext of ["wav", "mp3", "ogg"]) list.push(`${primary}.${ext}`);
+    }
+    const official = hw.isPluginHost() ? ["media/whip.wav", "media/whip-crack.wav"] : ["sound/whip.wav", "media/whip.wav"];
+    for (const p of official) {
+      if (!list.includes(p)) list.push(p);
     }
     return list;
   }
@@ -4440,7 +4446,7 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     const src = ctx.createBufferSource();
     src.buffer = buffer;
     const gain = ctx.createGain();
-    gain.gain.setValueAtTime(1, now);
+    gain.gain.setValueAtTime(0.72, now);
     src.connect(gain);
     gain.connect(ctx.destination);
     src.start(now);
@@ -4468,7 +4474,7 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     peak.Q.value = 1.6;
     peak.gain.value = 9;
     const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.88, now);
+    gain.gain.setValueAtTime(0.68, now);
     gain.gain.exponentialRampToValueAtTime(8e-4, now + crackDur);
     noise.connect(hp);
     hp.connect(peak);
@@ -4481,7 +4487,7 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     click.frequency.setValueAtTime(3800, now);
     click.frequency.exponentialRampToValueAtTime(1800, now + 0.01);
     const clickGain = ctx.createGain();
-    clickGain.gain.setValueAtTime(0.14, now);
+    clickGain.gain.setValueAtTime(0.1, now);
     clickGain.gain.exponentialRampToValueAtTime(8e-4, now + 0.012);
     click.connect(clickGain);
     clickGain.connect(ctx.destination);

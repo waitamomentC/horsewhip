@@ -81,4 +81,3 @@ npm run package
 | 复制约束 | 复制 + **插入 Chat** + allowlist |
 | 无分支融合条 | 分支栏多选 + **AI 融合 → 主泳道** |
 
-鞭子音效：根目录 [`media/whip-crack.mp3`](https://github.com/waitamomentC/horsewhip/blob/main/media/README.md) → `npm run sync-assets`。

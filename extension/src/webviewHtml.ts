@@ -78,7 +78,7 @@ export function buildTimelineHtml(
   <meta charset="UTF-8">
   <meta http-equiv="Content-Security-Policy" content="${csp(webview)}">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="horsewhip-whip-audio" content="${u('whip-crack.mp3')}">
+  <meta name="horsewhip-whip-audio" content="${u('whip.wav')}">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
   <link rel="stylesheet" href="${u('style.css')}">
   <style>
@@ -337,8 +337,14 @@ export function buildTimelineHtml(
     }
     .hw-whip-btn:hover .hw-whip-icon__lash path[fill="#f97316"] { fill: #fbbf24; }
     .hw-whip-float {
-      position: fixed; right: 20px; bottom: 52px; left: auto; top: auto;
-      z-index: 10050; pointer-events: none;
+      position: fixed;
+      top: 50%;
+      left: 62%;
+      right: auto;
+      bottom: auto;
+      transform: translate(-50%, -50%);
+      z-index: 10050;
+      pointer-events: none;
     }
     .hw-whip-float:not([hidden]) { pointer-events: auto; }
     .hw-whip-float__btn {
