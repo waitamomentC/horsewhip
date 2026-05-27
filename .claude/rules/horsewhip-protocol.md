@@ -25,7 +25,7 @@
 
 # Horsewhip AI Protocol
 
-> **唯一权威协议**（v0.7）。安装到 **业务项目根目录** 的 `AGENTS.md` 即本文件。  
+> **唯一权威协议**（v1.0.1，与插件 1.0.1 对齐）。安装到 **业务项目根目录** 的 `AGENTS.md` 即本文件。  
 > Cursor / Copilot：根目录引用或 `@AGENTS.md`。Claude Code：另见 `.claude/rules/horsewhip-protocol.md`（§ Install）。  
 > 其他 IDE 适配欢迎社区 PR；**不要** fork 第二套铁律。
 

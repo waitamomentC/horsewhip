@@ -1,8 +1,8 @@
 {
   "name": "horsewhip",
   "displayName": "Horsewhip",
-  "description": "Git file timeline · GitHub SSH publish · workspace git only",
-  "version": "0.8.3",
+  "description": "AI boundary timeline for your repo — draw file lanes, whip-copy constraints into Chat, optional guard on commit.",
+  "version": "1.0.1",
   "publisher": "horsewhip",
   "license": "AGPL-3.0-or-later",
   "repository": {
@@ -206,6 +206,7 @@
     "sync-assets": "node ./scripts/sync-web-assets.js",
     "bump:build": "node ./scripts/bump-build.mjs",
     "package": "npm run bump:build && npm run sync-assets && npm run compile && vsce package --no-dependencies",
+    "publish:marketplace": "npm run build:all && vsce publish --no-dependencies",
     "bump:patch": "npm version patch --no-git-tag-version",
     "bump:minor": "npm version minor --no-git-tag-version"
   },

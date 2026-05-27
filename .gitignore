@@ -43,6 +43,11 @@ tmp/
 
 # Local reference / scratch (not part of the product)
 .ref/
+script.js.monolith.bak
 
-# Optional: keep personal notes out of the repo
-# work-log.md
+# Internal planning & early drafts (local only — not product docs)
+plan.md
+ui-plan.md
+work-log.md
+DESIGN.md
+docs/acceptance-checklist.md

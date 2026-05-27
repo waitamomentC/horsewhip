@@ -1,5 +1,7 @@
 # Horsewhip Protocol（AI 协作协议包）
 
+**当前版本：v1.0.1**（与 `extension/package.json` 插件版本对齐）
+
 本目录是 horsewhip 仓库里的 **协议子包**（暂不单独建仓）。产品与插件在仓库根目录、`extension/`。
 
 ## 目录
