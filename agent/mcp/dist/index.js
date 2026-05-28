@@ -6,7 +6,7 @@ import { persistAllowlist, readAllowlistRecord, readEditBlocked, writeMcpSignal,
 import { assertGitWorkspace, normalizeRelPaths, resolveWorkspaceRoot } from './workspace.js';
 const server = new McpServer({
     name: 'horsewhip',
-    version: '0.1.0',
+    version: '2.0.0',
 });
 function workspaceOrThrow() {
     const root = resolveWorkspaceRoot();

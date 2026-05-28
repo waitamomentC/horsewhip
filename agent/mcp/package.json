@@ -1,6 +1,6 @@
 {
   "name": "@horsewhip/mcp-server",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "description": "Horsewhip MCP — programmatic boundary lock for AI agents",
   "type": "module",
   "main": "./dist/index.js",
