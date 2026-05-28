@@ -28,7 +28,7 @@ import './wire.js';
 import { bootstrap } from './bootstrap.js';
 
 if (typeof d3 === 'undefined') {
-  window.__horsewhipBootError = 'd3 图表库未加载。请 Reload Window；若仍失败，确认 extension/media/d3.min.js 存在。';
+  window.__horsewhipBootError = 'd3 图表库未加载。请重新加载窗口；若仍失败，确认 extension/media/d3.min.js 存在。';
 } else {
   try {
     bootstrap();

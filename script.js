@@ -5528,7 +5528,7 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
 
   // src/app/main.js
   if (typeof d3 === "undefined") {
-    window.__horsewhipBootError = "d3 \u56FE\u8868\u5E93\u672A\u52A0\u8F7D\u3002\u8BF7 Reload Window\uFF1B\u82E5\u4ECD\u5931\u8D25\uFF0C\u786E\u8BA4 extension/media/d3.min.js \u5B58\u5728\u3002";
+    window.__horsewhipBootError = "d3 \u56FE\u8868\u5E93\u672A\u52A0\u8F7D\u3002\u8BF7\u91CD\u65B0\u52A0\u8F7D\u7A97\u53E3\uFF1B\u82E5\u4ECD\u5931\u8D25\uFF0C\u786E\u8BA4 extension/media/d3.min.js \u5B58\u5728\u3002";
   } else {
     try {
       bootstrap();

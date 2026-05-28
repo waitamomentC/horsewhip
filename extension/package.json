@@ -48,58 +48,58 @@
     "viewsWelcome": [
       {
         "view": "horsewhip.timelineView",
-        "contents": "Git file swimlanes · dual whip guards (aim + write lock).\n[Open Horsewhip timeline](command:horsewhip.open)"
+        "contents": "文件泳道 · 两重鞭守门（瞄准 + 写盘拦截）。\n[打开 Horsewhip 泳道](command:horsewhip.open)"
       }
     ],
     "commands": [
       {
         "command": "horsewhip.open",
-        "title": "Horsewhip: Open Timeline",
+        "title": "Horsewhip: 打开泳道",
         "icon": "$(symbol-event)"
       },
       {
         "command": "horsewhip.showTimeline",
-        "title": "Horsewhip: Open Timeline",
+        "title": "Horsewhip: 打开泳道",
         "icon": "$(symbol-event)"
       },
       {
         "command": "horsewhip.refresh",
-        "title": "Horsewhip: Refresh Git Log",
+        "title": "Horsewhip: 刷新 Git 记录",
         "icon": "$(refresh)"
       },
       {
         "command": "horsewhip.loadDemo",
-        "title": "Horsewhip: Load Demo Data",
+        "title": "Horsewhip: 加载演示数据",
         "icon": "$(beaker)"
       },
       {
         "command": "horsewhip.publishGithub",
-        "title": "Horsewhip: Publish to GitHub (SSH)",
+        "title": "Horsewhip: 发布到 GitHub (SSH)",
         "icon": "$(cloud-upload)"
       },
       {
         "command": "horsewhip.commit",
-        "title": "Horsewhip: Commit Changes",
+        "title": "Horsewhip: 提交变更",
         "icon": "$(git-commit)"
       },
       {
         "command": "horsewhip.checkBoundary",
-        "title": "Horsewhip: Check Boundary (Guard)",
+        "title": "Horsewhip: 检查边界（守门）",
         "icon": "$(shield)"
       },
       {
         "command": "horsewhip.insertCorrection",
-        "title": "Horsewhip: Insert Overreach Correction to Chat",
+        "title": "Horsewhip: 插入越界纠正到对话",
         "icon": "$(warning)"
       },
       {
         "command": "horsewhip.revertOverreach",
-        "title": "Horsewhip: Revert Overreach Files",
+        "title": "Horsewhip: 还原越界文件",
         "icon": "$(discard)"
       },
       {
         "command": "horsewhip.installCommitHook",
-        "title": "Horsewhip: Install Git Pre-Commit Guard Hook",
+        "title": "Horsewhip: 安装 Git Pre-Commit 守门钩子",
         "icon": "$(shield)"
       }
     ],

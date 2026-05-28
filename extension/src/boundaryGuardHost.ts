@@ -98,7 +98,7 @@ export async function notifyBoundaryArmed(workspaceRoot: string, files: string[]
   });
   if (!hookOk) {
     vscode.window.showWarningMessage(
-      'horsewhip：边界已划定，但 git pre-commit 钩子未安装。终端里 git commit 不会拦截越界，请运行「Horsewhip: Install Git Pre-Commit Guard Hook」。',
+      'horsewhip：边界已划定，但 git pre-commit 钩子未安装。终端里 git commit 不会拦截越界，请运行「Horsewhip: 安装 Git Pre-Commit 守门钩子」。',
     );
   }
 }

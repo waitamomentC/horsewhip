@@ -23,8 +23,8 @@ export function buildGateHtml(
   const isNoGit = reason === 'no-git';
   const title = isNoGit ? '需要先建立 Git 仓库' : '需要先打开工作区';
   const body = isNoGit
-    ? `Horsewhip only reads Git history from your <strong>current workspace</strong>.${folderName ? ` Folder <code>${folderName}</code> ` : ' '}has no <code>.git</code> yet. Run in the project root:<br><br><code>git init</code>`
-    : 'Use <strong>File → Open Folder</strong> to pick a project directory. Horsewhip only analyzes files inside that workspace.';
+    ? `Horsewhip 只读取<strong>当前工作区</strong>内的 Git 历史。${folderName ? `文件夹 <code>${folderName}</code> ` : ''}尚无 <code>.git</code>，请在项目根目录执行：<br><br><code>git init</code>`
+    : '请使用 <strong>文件 → 打开文件夹</strong> 选择项目目录。Horsewhip 只分析该工作区内的文件。';
   const action = isNoGit ? 'gateGitInit' : 'gateOpenFolder';
   const btnLabel = isNoGit ? '执行 git init' : '打开文件夹';
 
@@ -552,9 +552,9 @@ export function buildTimelineHtml(
     <button type="button" class="btn btn--compact" id="btn-load-more-commits" hidden>+100</button>
   </div>
   <aside class="constraint-panel" id="link-panel" hidden>
-    <p class="constraint-panel__label">constraint</p>
+    <p class="constraint-panel__label">边界约束</p>
     <pre class="constraint-panel__text" id="link-constraint-text"></pre>
-    <button type="button" class="btn btn--solid btn--block" id="btn-copy-link">copy</button>
+    <button type="button" class="btn btn--solid btn--block" id="btn-copy-link">复制</button>
   </aside>
   <div class="modal-backdrop" id="modal-backdrop" hidden>
     <div class="modal" role="dialog" aria-modal="true">
@@ -567,7 +567,7 @@ export function buildTimelineHtml(
         <button type="button" class="btn btn--icon modal__close" id="modal-close">×</button>
       </header>
       <section class="modal__section">
-        <h3 class="modal__section-title">constraint</h3>
+        <h3 class="modal__section-title">边界约束</h3>
         <pre class="modal__code modal__code--constraint" id="modal-constraint"></pre>
       </section>
       <section class="modal__section modal__section--actions">
@@ -578,7 +578,7 @@ export function buildTimelineHtml(
   <div class="commit-prompt" id="commit-prompt" hidden>
     <div class="commit-prompt__card">
       <h2 class="commit-prompt__title" id="commit-title">创建首次 commit</h2>
-      <p class="commit-prompt__desc" id="commit-desc">No commits yet — Horsewhip needs at least one commit to draw the timeline. Fill in author info and commit (<code>git add -A</code>; author info is saved to <strong>this repo only</strong>).</p>
+      <p class="commit-prompt__desc" id="commit-desc">尚无 commit — 需要至少一次提交才能绘制泳道。填写作者信息并提交（<code>git add -A</code>；作者信息仅保存在<strong>本仓库</strong>）。</p>
       <p class="commit-prompt__error" id="commit-error"></p>
       <div class="commit-prompt__field">
         <label class="commit-prompt__label" for="commit-author-name">Git 用户名</label>
@@ -614,7 +614,7 @@ export function buildTimelineHtml(
           <li>点击下方「生成 / 复制公钥」</li>
           <li>打开 <strong>GitHub → Settings → SSH and GPG keys → New SSH key</strong></li>
           <li>Title 随意，Key 里 <strong>粘贴</strong> 复制的公钥 → Add SSH key</li>
-          <li>Return to Horsewhip and click «Detect SSH»</li>
+          <li>回到 Horsewhip，点击「检测 SSH」</li>
         </ol>
         <textarea class="remote-wizard__pubkey" id="remote-pubkey" readonly placeholder="公钥将显示在这里…"></textarea>
         <div class="remote-wizard__row">
@@ -627,7 +627,7 @@ export function buildTimelineHtml(
       </div>
       <div class="remote-wizard__panel" id="remote-panel-repo" hidden>
         <h2 class="remote-wizard__title">远程仓库</h2>
-        <p class="remote-wizard__desc">Use an existing SSH remote URL, or let Horsewhip create a new <strong>public</strong> GitHub repo named after your <strong>project folder</strong>.</p>
+        <p class="remote-wizard__desc">填写已有 SSH 远程地址，或由 Horsewhip 按<strong>项目文件夹名</strong>在 GitHub 新建<strong>公开</strong>仓库。</p>
         <div class="remote-wizard__field">
           <label class="remote-wizard__label"><input type="radio" name="remote-mode" id="remote-mode-existing" value="existing" checked> 已有仓库地址</label>
         </div>

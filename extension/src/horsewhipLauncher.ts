@@ -18,10 +18,10 @@ export class HorsewhipLauncherProvider implements vscode.TreeDataProvider<vscode
   }
 
   getChildren(): vscode.TreeItem[] {
-    const open = new vscode.TreeItem('Open Horsewhip workspace', vscode.TreeItemCollapsibleState.None);
+    const open = new vscode.TreeItem('打开 Horsewhip 工作区', vscode.TreeItemCollapsibleState.None);
     open.iconPath = new vscode.ThemeIcon('symbol-event');
     open.description = '全屏时间线';
-    open.command = { command: 'horsewhip.open', title: 'Open Horsewhip workspace' };
+    open.command = { command: 'horsewhip.open', title: '打开 Horsewhip 工作区' };
     return [open];
   }
 

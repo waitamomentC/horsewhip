@@ -44,7 +44,7 @@ export async function ensureWorkspaceReady(): Promise<string | undefined> {
 
   if (state.reason === 'no-folder') {
     const pick = await vscode.window.showWarningMessage(
-      'Open a folder in VS Code first (File → Open Folder). Horsewhip needs a workspace folder.',
+      '请先在 VS Code 中打开文件夹（文件 → 打开文件夹）。Horsewhip 需要工作区根目录。',
       { modal: true },
       '打开文件夹',
     );
@@ -68,7 +68,7 @@ export async function ensureWorkspaceReady(): Promise<string | undefined> {
       await gitInit(root);
       const again = await isGitRepository(root);
       if (again) {
-        vscode.window.showInformationMessage('Git repository initialized — loading Horsewhip…');
+        vscode.window.showInformationMessage('Git 仓库已初始化 — 正在加载 Horsewhip…');
         return root;
       }
     } catch (err) {

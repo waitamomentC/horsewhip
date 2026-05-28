@@ -295,7 +295,7 @@ export class HorsewhipTimeline {
       const text = err instanceof Error ? err.message : String(err);
       console.error('[Horsewhip] pre-commit hook install failed:', err);
       vscode.window.showErrorMessage(
-        `horsewhip：无法安装 git pre-commit 守门钩子 — ${text}。请运行命令「Horsewhip: Install Git Pre-Commit Guard Hook」。`,
+        `horsewhip：无法安装 git pre-commit 守门钩子 — ${text}。请运行命令「Horsewhip: 安装 Git Pre-Commit 守门钩子」。`,
       );
     }
   }
@@ -365,7 +365,7 @@ export class HorsewhipTimeline {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      vscode.window.showErrorMessage(`Horsewhip: failed to read git log — ${msg}`);
+      vscode.window.showErrorMessage(`horsewhip：读取 git log 失败 — ${msg}`);
       this.webview.postMessage({ type: 'gitLoadError', error: msg });
     } finally {
       this.gitReloadInFlight = false;
@@ -439,7 +439,7 @@ export class HorsewhipTimeline {
       await gitCommitAll(cwd, message);
       const { clearCommitBlockedMarker } = await import('./boundaryPersist');
       await clearCommitBlockedMarker(cwd);
-      vscode.window.showInformationMessage(`Horsewhip: committed — ${message}`);
+      vscode.window.showInformationMessage(`horsewhip：已提交 — ${message}`);
       await this.reloadGitTimeline({ offerRemote: true });
       this.webview.postMessage({ type: 'commitDone', message });
     } catch (err) {
@@ -533,7 +533,7 @@ export class HorsewhipTimeline {
 
       this.webview.postMessage({ type: 'remotePublishDone', remoteUrl, htmlUrl });
       await this.pushRepoStatus();
-      vscode.window.showInformationMessage(`Horsewhip: published to ${remoteUrl}`);
+      vscode.window.showInformationMessage(`horsewhip：已发布到 ${remoteUrl}`);
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
       this.webview.postMessage({ type: 'remotePublishError', error: text });
@@ -797,9 +797,9 @@ export class HorsewhipTimeline {
       if (!text) return;
       const result = await insertTextIntoChat(text);
       if (result === 'chat') {
-        vscode.window.showInformationMessage('Horsewhip: constraint inserted into Chat — add your task description and send');
+        vscode.window.showInformationMessage('horsewhip：边界约束已插入对话 — 请补充任务说明后发送');
       } else {
-        vscode.window.showInformationMessage('Horsewhip: constraint copied to clipboard — paste into Chat');
+        vscode.window.showInformationMessage('horsewhip：边界约束已复制到剪贴板 — 请粘贴到对话');
       }
     }
   }

@@ -117,7 +117,7 @@
     if (descEl) {
       descEl.textContent = isQuick
         ? '将当前工作区所有改动 git add -A 并创建 commit。'
-        : 'No commits yet — Horsewhip needs at least one commit to draw the timeline. Fill in author info and commit (git add -A; author info is saved to this repo only).';
+        : '尚无 commit — 需要至少一次提交才能绘制泳道。填写作者信息并提交（git add -A；作者信息仅保存在本仓库）。';
     }
 
     const empty = document.getElementById('graph-empty');
@@ -216,7 +216,7 @@
       statusEl.classList.add('plugin-guard__status--warn');
       const label = (msg.allowed || [])[0] || '边界';
       statusEl.textContent = `守门 · ${label}（未装 hook）`;
-      statusEl.title = '请运行命令：Horsewhip: Install Git Pre-Commit Guard Hook';
+      statusEl.title = '请运行命令：Horsewhip: 安装 Git Pre-Commit 守门钩子';
       if (btnCorrect) btnCorrect.hidden = true;
       if (btnRevert) btnRevert.hidden = true;
       return;
@@ -377,7 +377,7 @@
     gitSyncTimer = setTimeout(() => {
       gitSyncTimer = null;
       showGraphBootError(
-        '同步 Git 超时（网络或仓库过大）。请执行「Horsewhip: Refresh Git Log」或 Reload Window；终端需联网时勿阻塞 xterm CDN。',
+        '同步 Git 超时（网络或仓库过大）。请执行「Horsewhip: 刷新 Git 记录」或重新加载窗口；终端需联网时勿阻塞 xterm CDN。',
       );
     }, GIT_SYNC_WAIT_MS);
   }
@@ -400,7 +400,7 @@
     const title = empty.querySelector('.graph-empty__title');
     const desc = empty.querySelector('.graph-empty__desc');
     if (title) title.textContent = 'horsewhip 未能启动';
-    if (desc) desc.textContent = text || '请重新加载窗口（Developer: Reload Window）';
+    if (desc) desc.textContent = text || '请重新加载窗口（命令面板：Developer: Reload Window）';
   }
 
   function applyTimelineLog(log) {
@@ -512,7 +512,7 @@
     const done = () => {
       if (!startHostIfReady()) {
         showGraphBootError(
-          '脚本未加载（extension/media/script.js）。请确认：① 仓库根目录 npm run build:extension  ② Cursor 打开的是 horsewhip 根目录  ③ F5 调试（不要只装旧 VSIX）  ④ Reload Window',
+          '脚本未加载（extension/media/script.js）。请确认：① 仓库根目录 npm run build:extension  ② 用 VS Code/Cursor 打开 horsewhip 根目录  ③ F5 调试（不要只装旧 VSIX）  ④ 重新加载窗口',
         );
       }
       if (typeof onReady === 'function') onReady();

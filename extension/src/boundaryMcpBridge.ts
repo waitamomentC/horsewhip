@@ -39,15 +39,15 @@ function scheduleDebounced(key: string, fn: () => void, ms = 120): void {
 function ceremonyToast(signal: McpSignalRecord): string | undefined {
   if (signal.type === 'task_complete') {
     return signal.summary
-      ? `Horsewhip：任务收束 — ${signal.summary}`
-      : 'Horsewhip：本任务已在边界内收束';
+      ? `horsewhip：任务收束 — ${signal.summary}`
+      : 'horsewhip：本任务已在边界内收束';
   }
   if (signal.type === 'whip_ceremony') {
-    return signal.phase === 'expand' ? 'Horsewhip：边界已扩大' : 'Horsewhip：边界已圈定';
+    return signal.phase === 'expand' ? 'horsewhip：边界已扩大' : 'horsewhip：边界已圈定';
   }
-  if (signal.type === 'lock') return 'Horsewhip：MCP 已锁定跑马范围';
-  if (signal.type === 'unlock') return 'Horsewhip：MCP 已解除圈定';
-  if (signal.type === 'expand') return 'Horsewhip：MCP 已扩大跑马范围';
+  if (signal.type === 'lock') return 'horsewhip：MCP 已锁定跑马范围';
+  if (signal.type === 'unlock') return 'horsewhip：MCP 已解除圈定';
+  if (signal.type === 'expand') return 'horsewhip：MCP 已扩大跑马范围';
   return undefined;
 }
 
