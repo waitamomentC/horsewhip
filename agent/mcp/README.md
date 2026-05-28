@@ -10,7 +10,7 @@ Agent 程序化圈地；与插件共用 `.git/horsewhip/allowlist.json`。
 npm run setup:agent -- --project /path/to/your-app
 ```
 
-会 build 本包、写入目标项目的 `.cursor/mcp.json`、链接 Skill。
+会 build 本包、写入 `.cursor/mcp.json`（Cursor）与 **`.mcp.json`**（Claude Code）、链接 Skill。Claude 排错：[docs/claude-code.md](../../docs/claude-code.md)。
 
 ## 工具
 
@@ -32,7 +32,7 @@ npm run build
 npm start   # stdio MCP
 ```
 
-## Cursor 配置（手动时）
+## Cursor / Vibecode（手动时）
 
 ```json
 {
@@ -41,6 +41,23 @@ npm start   # stdio MCP
       "command": "node",
       "args": ["/ABS/PATH/horsewhip/agent/mcp/dist/index.js"],
       "env": { "HORSEWHIP_WORKSPACE": "${workspaceFolder}" }
+    }
+  }
+}
+```
+
+## Claude Code（手动时）
+
+项目根 **`.mcp.json`**（推荐 `alwaysLoad: true`）：
+
+```json
+{
+  "mcpServers": {
+    "horsewhip": {
+      "command": "node",
+      "args": ["/ABS/PATH/horsewhip/agent/mcp/dist/index.js"],
+      "env": { "HORSEWHIP_WORKSPACE": "${CLAUDE_PROJECT_DIR}" },
+      "alwaysLoad": true
     }
   }
 }

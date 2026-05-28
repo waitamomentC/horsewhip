@@ -50,7 +50,7 @@ cd horsewhip
 npm run setup:agent -- --project /path/to/your-app
 ```
 
-脚本会构建 `agent/mcp`、写入项目 MCP 配置（默认 `.cursor/mcp.json`）、链接 Skill。Windows 链 Skill 失败时加 `--copy-skill`。
+脚本会构建 `agent/mcp`、写入 **`.cursor/mcp.json`（Cursor/Vibecode）** 与 **`.mcp.json`（Claude Code）**、链接 Skill。Claude 排错见 [docs/claude-code.md](./docs/claude-code.md)。Windows 链 Skill 失败时加 `--copy-skill`。
 
 `.git/horsewhip/` 为本地守门数据，**勿提交**到业务仓库。
 
@@ -182,6 +182,9 @@ Skill 细则：[agent/skills/horsewhip/SKILL.md](./agent/skills/horsewhip/SKILL.
 
 | 文档 | 内容 |
 |------|------|
+| [docs/claude-code.md](./docs/claude-code.md) | Claude Code MCP / Skill 配置与排错 |
+| [docs/ai-test-checklist.md](./docs/ai-test-checklist.md) | **AI 先跑**的自测清单（MCP + Skill） |
+| [docs/acceptance-checklist.md](./docs/acceptance-checklist.md) | **人工**验收清单（插件 UI/协议） |
 | [docs/user-guide.md](./docs/user-guide.md) | 泳道与挥鞭 |
 | [docs/boundary-guard.md](./docs/boundary-guard.md) | 守门 |
 | [agent/README.md](./agent/README.md) | MCP / 脚本 |

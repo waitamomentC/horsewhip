@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * One-shot Cursor Agent setup: build horsewhip MCP, link skill, write .cursor/mcp.json
+ * One-shot Agent setup: build horsewhip MCP, link skills, write Cursor + Claude Code MCP configs
  *
  * Usage (from horsewhip repo):
  *   npm run setup:agent -- --project /path/to/your-git-app
@@ -21,7 +21,7 @@ const SKILL_SRC = path.join(HORSEWHIP_ROOT, 'agent', 'skills', 'horsewhip');
 
 function usage() {
   console.log(`
-Horsewhip Cursor Agent setup
+Horsewhip Agent setup (Cursor / Vibecode + Claude Code)
 
   node scripts/setup-cursor-agent.mjs [options]
 
@@ -31,8 +31,15 @@ Options:
   --rebuild         Force npm install + build in agent/mcp
   --copy-skill      Copy skill instead of symlink (Windows-friendly)
   --use-npx         Use "npx -y @horsewhip/mcp-server" (requires npm publish)
-  --global-mcp      Merge into ~/.cursor/mcp.json instead of project .cursor/
+  --global-mcp      Merge into ~/.cursor/mcp.json (Cursor / Vibecode)
+  --global-claude   Merge into ~/.claude.json (Claude Code user scope)
   -h, --help        This help
+
+Writes:
+  .cursor/mcp.json     — Cursor / Vibecode (${workspaceFolder})
+  .mcp.json            — Claude Code (${CLAUDE_PROJECT_DIR}, alwaysLoad)
+  .cursor/skills/…     — Cursor skills
+  .claude/skills/…     — Claude Code skills
 `);
 }
 
@@ -44,6 +51,7 @@ function parseArgs(argv) {
     copySkill: false,
     useNpx: false,
     globalMcp: false,
+    globalClaude: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -55,6 +63,7 @@ function parseArgs(argv) {
     else if (a === '--copy-skill') opts.copySkill = true;
     else if (a === '--use-npx') opts.useNpx = true;
     else if (a === '--global-mcp') opts.globalMcp = true;
+    else if (a === '--global-claude') opts.globalClaude = true;
     else if (a === '--project') opts.project = path.resolve(argv[++i] || '');
     else if (a === '--repo') opts.repo = path.resolve(argv[++i] || '');
     else {
@@ -87,8 +96,7 @@ function ensureMcpBuilt(repo, rebuild) {
   return entry;
 }
 
-function linkSkill(project, copySkill) {
-  const skillDest = path.join(project, '.cursor', 'skills', 'horsewhip');
+function linkSkillAt(skillDest, copySkill) {
   fs.mkdirSync(path.dirname(skillDest), { recursive: true });
   if (fs.existsSync(skillDest)) {
     const st = fs.lstatSync(skillDest);
@@ -112,6 +120,11 @@ function linkSkill(project, copySkill) {
   }
 }
 
+function linkSkills(project, copySkill) {
+  linkSkillAt(path.join(project, '.cursor', 'skills', 'horsewhip'), copySkill);
+  linkSkillAt(path.join(project, '.claude', 'skills', 'horsewhip'), copySkill);
+}
+
 function readJsonSafe(file) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -133,19 +146,20 @@ function writeMcpConfig(targetFile, serverConfig) {
   console.log('→ Wrote', targetFile);
 }
 
-function horsewhipServerConfig(opts, mcpEntry) {
-  if (opts.useNpx) {
-    return {
-      command: 'npx',
-      args: ['-y', '@horsewhip/mcp-server'],
-      env: { HORSEWHIP_WORKSPACE: '${workspaceFolder}' },
-    };
-  }
-  return {
-    command: 'node',
-    args: [mcpEntry],
-    env: { HORSEWHIP_WORKSPACE: '${workspaceFolder}' },
-  };
+function horsewhipServerConfig(opts, mcpEntry, { workspaceEnv, alwaysLoad = false }) {
+  const base = opts.useNpx
+    ? {
+        command: 'npx',
+        args: ['-y', '@horsewhip/mcp-server'],
+        env: { HORSEWHIP_WORKSPACE: workspaceEnv },
+      }
+    : {
+        command: 'node',
+        args: [mcpEntry],
+        env: { HORSEWHIP_WORKSPACE: workspaceEnv },
+      };
+  if (alwaysLoad) return { ...base, alwaysLoad: true };
+  return base;
 }
 
 function main() {
@@ -168,27 +182,50 @@ function main() {
   const mcpEntry = opts.useNpx
     ? null
     : ensureMcpBuilt(repo, opts.rebuild);
-  linkSkill(project, opts.copySkill);
+  linkSkills(project, opts.copySkill);
 
-  const server = horsewhipServerConfig(opts, mcpEntry);
+  const cursorServer = horsewhipServerConfig(opts, mcpEntry, {
+    workspaceEnv: '${workspaceFolder}',
+  });
+  const claudeServer = horsewhipServerConfig(opts, mcpEntry, {
+    workspaceEnv: '${CLAUDE_PROJECT_DIR}',
+    alwaysLoad: true,
+  });
+
+  const home = process.env.HOME || process.env.USERPROFILE;
+  if (!home && (opts.globalMcp || opts.globalClaude)) {
+    console.error('Cannot resolve home directory for --global-mcp / --global-claude');
+    process.exit(1);
+  }
+
   if (opts.globalMcp) {
-    const home = process.env.HOME || process.env.USERPROFILE;
-    if (!home) {
-      console.error('Cannot resolve home directory for --global-mcp');
-      process.exit(1);
-    }
-    writeMcpConfig(path.join(home, '.cursor', 'mcp.json'), server);
+    writeMcpConfig(path.join(home, '.cursor', 'mcp.json'), cursorServer);
   } else {
-    writeMcpConfig(path.join(project, '.cursor', 'mcp.json'), server);
+    writeMcpConfig(path.join(project, '.cursor', 'mcp.json'), cursorServer);
+  }
+
+  if (opts.globalClaude) {
+    writeMcpConfig(path.join(home, '.claude.json'), claudeServer);
+  } else {
+    writeMcpConfig(path.join(project, '.mcp.json'), claudeServer);
   }
 
   console.log(`
 Done. Next steps:
-  1. Install "Horsewhip" extension (VS Code / Cursor marketplace)
-  2. Cursor: Settings → MCP — confirm "horsewhip" is enabled
-  3. Reload Window
-  4. Open this folder in Cursor: ${project}
-  5. In Chat: "Use horsewhip: lock paths before editing."
+
+  Cursor / Vibecode:
+  1. Install "Horsewhip" VS Code extension
+  2. MCP 设置里确认 horsewhip 已启用 → 重载窗口
+  3. 打开项目: ${project}
+
+  Claude Code:
+  1. 配置在项目根 .mcp.json（不是 .claude/mcp.json）
+  2. 退出并重新进入项目目录的 claude 会话
+  3. 运行 /mcp — 批准 horsewhip；确认工具已连接
+  4. 若工具仍不可见: claude mcp reset-project-choices
+  5. 对话: "调用 horsewhip_lock_paths 锁定 README.md"
+
+  详见 docs/claude-code.md
 
 Plugin only (no Agent): skip MCP; use the timeline whip in the sidebar.
 `);

@@ -1,9 +1,16 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+function isUnexpandedTemplate(value) {
+    return value.includes('${');
+}
+/** Cursor: HORSEWHIP_WORKSPACE / ${workspaceFolder}. Claude Code: ${CLAUDE_PROJECT_DIR} or CLAUDE_PROJECT_DIR. */
 export function resolveWorkspaceRoot() {
-    const env = process.env.HORSEWHIP_WORKSPACE?.trim();
-    if (env)
-        return path.resolve(env);
+    const hw = process.env.HORSEWHIP_WORKSPACE?.trim();
+    if (hw && !isUnexpandedTemplate(hw))
+        return path.resolve(hw);
+    const claudeDir = process.env.CLAUDE_PROJECT_DIR?.trim();
+    if (claudeDir && !isUnexpandedTemplate(claudeDir))
+        return path.resolve(claudeDir);
     return path.resolve(process.cwd());
 }
 export function assertGitWorkspace(workspaceRoot) {

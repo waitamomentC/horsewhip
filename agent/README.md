@@ -21,9 +21,12 @@ npm run setup:agent -- --project /path/to/your-git-app
 node /path/to/horsewhip/scripts/setup-cursor-agent.mjs --project .
 ```
 
-然后：安装 **Horsewhip** 插件 → Cursor **Reload Window** → MCP 列表确认 `horsewhip` 已启用。
+然后：
 
-选项：`--copy-skill`（Windows）· `--rebuild` · `--use-npx`（npm 已发布后）· `--global-mcp`
+- **Cursor / Vibecode**：装 Horsewhip 插件 → 重载 → MCP 里启用 `horsewhip`
+- **Claude Code**：见 [docs/claude-code.md](../docs/claude-code.md)（用项目根 **`.mcp.json`**，不是 `.claude/mcp.json`）
+
+选项：`--copy-skill` · `--rebuild` · `--use-npx` · `--global-mcp` · `--global-claude`
 
 详见根目录 [README.md § 快速安装](../README.md#快速安装完整版--cursor)。
 
