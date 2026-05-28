@@ -1,15 +1,40 @@
 ---
 name: horsewhip
 description: >-
-  Use Horsewhip before editing code in a git repo: lock a file boundary via MCP,
-  whip sound on lock and on task complete, ask the user before expanding the
-  boundary, never edit outside the pasture. Requires horsewhip MCP; full
-  experience includes the VS Code/Cursor Horsewhip extension for visualization.
+  MANDATORY when user types /horsewhip or asks to use Horsewhip boundary workflow.
+  Lock minimum file paths via MCP before any edits; whip on lock and task complete;
+  ask before expand_boundary; never edit outside pasture. Triggers: /horsewhip,
+  horsewhip, 挥鞭, 圈定, boundary lock, lock paths before edit.
 ---
 
 # Horsewhip — AI boundary workflow
 
+## Forced invocation: `/horsewhip`
+
+When the user message **starts with `/horsewhip`** or they pick the **`/horsewhip` slash command** (Cursor: `.cursor/commands/horsewhip.md`; Claude Code: `/horsewhip` skill slash):
+
+1. Treat this as **mandatory** — do **not** edit files until the workflow below completes.
+2. Strip the `/horsewhip` prefix; the remainder (same message) is the task.
+3. Follow every step in **Standard flow** and **Minimum lock** without shortcuts.
+
+If the user did **not** use `/horsewhip`, still apply this skill when they ask to implement/fix/refactor **with boundary discipline** or mention horsewhip / 圈定 / 挥鞭.
+
 Before changing any project files, define the **pasture** (allowed paths). Do not edit outside it. If you need more scope, ask the user first.
+
+## Minimum lock (hard rules — MCP enforces)
+
+**`horsewhip_lock_paths` rejects overly broad paths.** You must lock the **smallest** set that can complete the task.
+
+| Allowed on first lock | Rejected on first lock |
+|-----------------------|-------------------------|
+| Specific files: `src/auth/login.ts`, `README.md`, `package.json` | Top-level dirs: `src/`, `lib/`, `tests/`, `docs/` |
+| Deep subdirs only (≥2 segments): `src/auth/`, `packages/foo/src/` | Bare names: `src`, `lib` (no extension, no trailing `/`) |
+| Up to **8** paths in one lock call | `__root__` (whole repo) |
+| | More than 8 paths at once |
+
+**Need a wider pasture?** Do **not** guess. Tell the user what extra paths you need and why → after explicit approval → `horsewhip_expand_boundary` (can add `src/`, more files, etc.).
+
+**Bad:** lock `src/` because “all code is under src”. **Good:** lock only files you will edit for this task (often 1–3 paths).
 
 ## When to use
 
@@ -19,8 +44,8 @@ Before changing any project files, define the **pasture** (allowed paths). Do no
 
 ## Standard flow (follow in order)
 
-1. **Scope** — Call `horsewhip_suggest_scope` if useful, or infer a candidate path list from the task.
-2. **Lock** — Call `horsewhip_lock_paths` with workspace-relative paths (e.g. `src/ui/a.tsx`).
+1. **Scope** — List the **minimum** files this task will touch (read/search first). Call `horsewhip_suggest_scope` if useful.
+2. **Lock** — Call `horsewhip_lock_paths` with those **specific files** (e.g. `src/ui/a.tsx`). Use a deep subdir (`src/ui/`) only when the task truly edits many files in that folder.
 3. **Whip (lock)** — Right after a successful `lock_paths`, call `horsewhip_whip_ceremony({ "phase": "lock" })`.
    - Extension installed: whip sound + boundary bar shows the pasture.
    - Extension not installed: tools still succeed; no UI/sound.
@@ -45,6 +70,8 @@ The two whips mirror manual “whip to lock” and “done for the day” on the
 
 ## Forbidden
 
+- Locking `src/`, `lib/`, or other top-level directories on first lock (MCP will error)
+- Locking “just in case” paths you might not edit
 - Batch-editing files before `horsewhip_lock_paths`
 - Skipping `whip_ceremony` or `task_complete`
 - Calling `expand_boundary` without explicit user approval

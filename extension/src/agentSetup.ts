@@ -149,6 +149,22 @@ export function bundledSkillDir(extensionUri: vscode.Uri): string {
   return path.join(extensionUri.fsPath, 'media', 'skills', 'horsewhip');
 }
 
+export function bundledSlashCommandPath(extensionUri: vscode.Uri): string {
+  return path.join(extensionUri.fsPath, 'media', 'commands', 'horsewhip.md');
+}
+
+async function copyAgentSlashCommand(
+  extensionUri: vscode.Uri,
+  workspaceRoot: string,
+): Promise<boolean> {
+  const src = bundledSlashCommandPath(extensionUri);
+  if (!fs.existsSync(src)) return false;
+  const destDir = path.join(workspaceRoot, '.cursor', 'commands');
+  await fs.promises.mkdir(destDir, { recursive: true });
+  await fs.promises.copyFile(src, path.join(destDir, 'horsewhip.md'));
+  return true;
+}
+
 export function bundledMcpManifestPath(extensionUri: vscode.Uri): string {
   return path.join(extensionUri.fsPath, 'media', 'mcp', 'manifest.json');
 }
@@ -534,22 +550,29 @@ export async function setupAgentInWorkspace(
 
   await copyDirRecursive(skillSrc, path.join(workspaceRoot, '.cursor', 'skills', 'horsewhip'));
   await copyDirRecursive(skillSrc, path.join(workspaceRoot, '.claude', 'skills', 'horsewhip'));
+  const hasSlashCommand = await copyAgentSlashCommand(extensionUri, workspaceRoot);
   await writeAgentSetupStamp(workspaceRoot, extensionVersion, mcpEntry, mcpHash);
 
   const skillNote =
     skillExists(workspaceRoot, 'cursor') && skillExists(workspaceRoot, 'claude')
       ? 'Skill 已复制到 .cursor/skills 与 .claude/skills。'
       : 'Skill 复制可能不完整，请检查 skills 目录。';
+  const slashNote = hasSlashCommand
+    ? 'Cursor 斜杠命令已写入 .cursor/commands/horsewhip.md — 对话输入 /horsewhip 强制走边界流程。'
+    : '';
 
   return {
     ok: true,
     message: [
       '已写入 .cursor/mcp.json、.mcp.json，并记录 .git/horsewhip/agent-setup.json。',
       skillNote,
+      slashNote,
       '',
-      'Cursor / Vibecode：重载窗口，在 MCP 设置中确认 horsewhip 已启用。',
-      'Claude Code：退出并重新进入项目目录的 claude 会话，运行 /mcp 批准 horsewhip。',
-    ].join('\n'),
+      'Cursor / Vibecode：重载窗口，在 MCP 设置中确认 horsewhip 已启用；改代码前输入 /horsewhip <任务>。',
+      'Claude Code：退出并重新进入项目目录的 claude 会话，运行 /mcp 批准 horsewhip；改代码前输入 /horsewhip <任务>。',
+    ]
+      .filter(Boolean)
+      .join('\n'),
   };
 }
 

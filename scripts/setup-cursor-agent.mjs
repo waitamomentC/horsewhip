@@ -19,6 +19,7 @@ const HORSEWHIP_ROOT = path.resolve(__dirname, '..');
 const MCP_DIR = path.join(HORSEWHIP_ROOT, 'agent', 'mcp');
 const MCP_ENTRY = path.join(MCP_DIR, 'dist', 'index.js');
 const SKILL_SRC = path.join(HORSEWHIP_ROOT, 'agent', 'skills', 'horsewhip');
+const COMMAND_SRC = path.join(HORSEWHIP_ROOT, 'agent', 'commands', 'horsewhip.md');
 
 function usage() {
   console.log(`
@@ -42,6 +43,7 @@ Writes:
   .mcp.json            — Claude Code (${CLAUDE_PROJECT_DIR}, alwaysLoad)
   .cursor/skills/…     — Cursor skills
   .claude/skills/…     — Claude Code skills
+  .cursor/commands/horsewhip.md — Cursor /horsewhip slash command
 `);
 }
 
@@ -129,6 +131,14 @@ function linkSkills(project, skillSrc, copySkill) {
   linkSkillAt(path.join(project, '.claude', 'skills', 'horsewhip'), skillSrc, copySkill);
 }
 
+function copySlashCommand(project, commandSrc) {
+  if (!fs.existsSync(commandSrc)) return;
+  const destDir = path.join(project, '.cursor', 'commands');
+  fs.mkdirSync(destDir, { recursive: true });
+  fs.copyFileSync(commandSrc, path.join(destDir, 'horsewhip.md'));
+  console.log('→ Wrote', path.join(destDir, 'horsewhip.md'));
+}
+
 function readJsonSafe(file) {
   try {
     return JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -204,10 +214,12 @@ function main() {
 
   let mcpEntry = null;
   let skillSrc = SKILL_SRC;
+  let commandSrc = COMMAND_SRC;
 
   if (extensionRoot) {
     mcpEntry = path.join(extensionRoot, 'media', 'mcp', 'dist', 'index.js');
     skillSrc = path.join(extensionRoot, 'media', 'skills', 'horsewhip');
+    commandSrc = path.join(extensionRoot, 'media', 'commands', 'horsewhip.md');
     if (!fs.existsSync(mcpEntry)) {
       console.error('Bundled MCP missing. Run: npm run build:extension');
       console.error('Expected:', mcpEntry);
@@ -233,6 +245,7 @@ function main() {
     mcpEntry = ensureMcpBuilt(repo, opts.rebuild);
   }
   linkSkills(project, skillSrc, opts.copySkill || Boolean(extensionRoot));
+  copySlashCommand(project, commandSrc);
 
   const cursorServer = horsewhipServerConfig(opts, mcpEntry, {
     workspaceEnv: '${workspaceFolder}',
@@ -271,13 +284,14 @@ Done. Next steps:
   1. Install "Horsewhip" VS Code extension
   2. MCP 设置里确认 horsewhip 已启用 → 重载窗口
   3. 打开项目: ${project}
+  4. 改代码前输入: /horsewhip <你的任务>
 
   Claude Code:
   1. 配置在项目根 .mcp.json（不是 .claude/mcp.json）
   2. 退出并重新进入项目目录的 claude 会话
   3. 运行 /mcp — 批准 horsewhip；确认工具已连接
   4. 若工具仍不可见: claude mcp reset-project-choices
-  5. 对话: "调用 horsewhip_lock_paths 锁定 README.md"
+  5. 改代码前输入: /horsewhip <你的任务>
 
   详见 docs/claude-code.md
 

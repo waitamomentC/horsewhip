@@ -33,6 +33,8 @@ export type McpSignalRecord = {
   playWhip?: boolean;
   summary?: string;
   phase?: 'lock' | 'expand';
+  addedPaths?: string[];
+  previousAllowed?: string[];
 };
 
 export function allowlistFilePath(workspaceRoot: string): string {

@@ -88,6 +88,18 @@ allowlist：**`.git/horsewhip/allowlist.json`**（不进版本库）。
 
 allowlist 需含 **`"locked": true`**（挥鞭后写入）时，编辑锁、commit 与 pre-commit 才生效。
 
+### Agent 圈定期间：泳道只读
+
+当 `allowlist.json` 中 **`lockSource: "mcp"`** 且 `locked: true`（Agent 通过 MCP 圈地）时：
+
+- 泳道 **解锁 / 挥鞭 / 改选节点 / 关闭守门** 会被禁用；
+- 扩展宿主 **拒绝** 面板发来的解锁或替换边界请求，并 **回同步** MCP 边界；
+- Agent 调用 `horsewhip_unlock` 或 `horsewhip_task_complete` 后恢复可操作。
+
+人工仍可 **查看** 泳道、边界路径与守护记录；避免 AI 进行中手改面板导致 UI 与磁盘 allowlist 脱钩。
+
+**MCP 圈定后导航**：左侧文件泳道会自动 **展开** 锁定路径的父目录（如锁 `src/a/foo.ts` 则展开 `src/`、`src/a/`）。若目标行已在 **当前可见区域**（不滚动），会横向聚焦到对应泳道；若需向下滚动才看得到，则 **不自动滚屏**。
+
 插件自动维护 **`.git/horsewhip/boundary-notes.md`**。编辑被拦：**`edit-blocked.json`**。
 
 ### 手动安装 hook

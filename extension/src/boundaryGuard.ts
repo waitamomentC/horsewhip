@@ -125,11 +125,11 @@ ${boundaryNotesHintForPrompt()}`;
   const allowText = allowed.map(formatAllowLabel).join(', ');
   return `【horsewhip · 写盘被拦 · 已自动还原】
 路径：${file}
-原因：不在当前挥鞭圈定范围内。
+原因：不在当前挥鞭圈定范围内（未先 expand_boundary）。
 仅此范围可改：${allowText}
 
-你必须立即停止，并询问用户：是否在泳道扩大圈定 / 明确授权该文件后再改。
-在用户确认之前不要再次写入。
+你必须立即停止，并询问用户是否同意扩大边界；用户明确同意后调用 horsewhip_expand_boundary 将「${file}」或所在目录并入 allowlist。
+在用户同意并 expand 之前不要再次写入。本次已记入守护记录与 .git/horsewhip/edit-blocked.json 复查链。
 
 ${boundaryNotesHintForPrompt()}`;
 }

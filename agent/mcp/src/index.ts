@@ -9,6 +9,7 @@ import {
   writeMcpSignal,
 } from './persist.js';
 import { assertMcpIntegrityOrExit } from './integrity.js';
+import { validateExpandPaths, validateInitialLockPaths } from './scopePolicy.js';
 import { assertGitWorkspace, normalizeRelPaths, resolveWorkspaceRoot } from './workspace.js';
 
 assertMcpIntegrityOrExit(process.argv[1] ?? '');
@@ -34,7 +35,7 @@ server.registerTool(
   'horsewhip_lock_paths',
   {
     description:
-      'Lock allowed file paths for the current task. Writes .git/horsewhip/allowlist.json (locked).',
+      'Lock allowed file paths for the current task (minimum scope only: specific files or deep subdirs, not src/). Writes allowlist.json.',
     inputSchema: {
       paths: z.array(z.string()).min(1),
       reason: z.string().optional(),
@@ -42,8 +43,19 @@ server.registerTool(
   },
   async ({ paths, reason }) => {
     const root = workspaceOrThrow();
-    const allowed = normalizeRelPaths(root, paths);
-    const record = await persistAllowlist(root, allowed, true);
+    const rel = normalizeRelPaths(root, paths);
+    const scope = validateInitialLockPaths(rel);
+    if (!scope.ok) {
+      throw new Error(
+        JSON.stringify({
+          code: scope.code,
+          message: scope.message,
+          hints: scope.hints,
+          rejected: scope.rejected,
+        }),
+      );
+    }
+    const record = await persistAllowlist(root, scope.paths, true);
     await writeMcpSignal(root, { type: 'lock', playWhip: false });
     return textResult({
       ok: true,
@@ -104,9 +116,29 @@ server.registerTool(
     if (!rec?.locked) {
       throw new Error('Boundary is not locked. Call horsewhip_lock_paths first.');
     }
-    const merged = normalizeRelPaths(root, [...(rec.allowed ?? []), ...paths]);
+    const rel = normalizeRelPaths(root, paths);
+    const scope = validateExpandPaths(rel);
+    if (!scope.ok) {
+      throw new Error(
+        JSON.stringify({
+          code: scope.code,
+          message: scope.message,
+          hints: scope.hints,
+          rejected: scope.rejected,
+        }),
+      );
+    }
+    const merged = [...new Set([...(rec.allowed ?? []), ...scope.paths])].sort((a, b) =>
+      a.localeCompare(b),
+    );
+    const before = [...(rec.allowed ?? [])];
     const record = await persistAllowlist(root, merged, true, rec.guardActive !== false);
-    await writeMcpSignal(root, { type: 'expand', playWhip: false });
+    await writeMcpSignal(root, {
+      type: 'expand',
+      playWhip: false,
+      addedPaths: scope.paths,
+      previousAllowed: before,
+    });
     return textResult({
       ok: true,
       workspaceRoot: root,

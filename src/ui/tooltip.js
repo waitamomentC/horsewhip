@@ -169,7 +169,7 @@ function initGraphViewportEvents() {
         hw.nodeClickTimer = null;
       }
       if (hw.isBoundaryLocked() || hw.state.selectedNodeIds.size > 0) {
-        hw.clearNodeSelection();
+        if (!hw.state.mcpBoundaryLocked) hw.clearNodeSelection();
       }
       if (hw.state.selectedLink) {
         hw.state.selectedLink = null;

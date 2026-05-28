@@ -23,7 +23,7 @@
 
 打开你的 **Git 项目文件夹** 后，守门自动激活（不必先点侧栏）。
 
-**完整版（Vibecode / Claude Code + Agent）**：命令 **Horsewhip: 配置 Agent（MCP + Skill）** → 重载窗口。详见 [agent-setup.md](./agent-setup.md)。
+**完整版（Vibecode / Claude Code + Agent）**：命令 **Horsewhip: 配置 Agent（MCP + Skill）** → 重载窗口。改代码前在对话输入 **`/horsewhip <任务>`** 强制圈地（见 [agent-setup.md](./agent-setup.md)）。详见 [agent-setup.md](./agent-setup.md)。
 
 **守护记录**：泳道顶栏 **「守护记录」** 按钮（有拦截时显示次数）→ 切换到仪表盘；或命令 **Horsewhip: 守护记录**。
 

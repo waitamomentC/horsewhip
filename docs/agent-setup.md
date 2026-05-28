@@ -27,12 +27,32 @@
 | `.mcp.json` | Claude Code MCP（`${CLAUDE_PROJECT_DIR}`，`alwaysLoad: true`） |
 | `.cursor/skills/horsewhip/` | Cursor Skill |
 | `.claude/skills/horsewhip/` | Claude Skill |
+| `.cursor/commands/horsewhip.md` | Cursor **`/horsewhip`** 斜杠命令（强制走边界流程） |
 | `.git/horsewhip/agent-setup.json` | 配置审计戳（版本、哈希、时间，**勿提交**） |
 
 MCP 环境变量：
 
 - `HORSEWHIP_MCP_VERSION` — 与插件版本一致  
 - `HORSEWHIP_MCP_HASH` — 内嵌 `dist/index.js` 的 SHA256  
+
+---
+
+## 强制走边界流程：`/horsewhip`
+
+Skill 是 **软约束** — Agent 可能「知道有 horsewhip」但不自动执行 lock → 改文件。  
+要 **强制** 走圈地流程，在对话里用前置词：
+
+```text
+/horsewhip 修复 login 页面的校验 bug
+```
+
+| 客户端 | 机制 |
+|--------|------|
+| **Cursor / Vibecode** | `.cursor/commands/horsewhip.md` → 输入 `/` 选 **horsewhip**，或直接打 `/horsewhip …` |
+| **Claude Code** | `.claude/skills/horsewhip/` → 输入 **`/horsewhip`**（Skill 斜杠） |
+
+配置 Agent 时会写入 Cursor 斜杠命令；Claude 侧用 Skill 同名斜杠即可。  
+**未加 `/horsewhip` 的普通对话不会自动圈地** — 这是设计取舍（避免每个小问都 lock）。
 
 ---
 

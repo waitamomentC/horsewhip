@@ -592,6 +592,9 @@ async function bootstrapViewportRender(gen, options = {}) {
       hw.updateGraphFocus();
       hw.syncNodeRippleVisuals();
     }
+    if (hw.renderIsAlive(gen) && options.mcpBoundaryNavigate?.length) {
+      hw.finishMcpBoundaryNavigate?.(options.mcpBoundaryNavigate);
+    }
     hw.updateStats(hw.state.parsed);
     hw.updatePaginationUI(hw.state.parsed);
   } catch (e) {

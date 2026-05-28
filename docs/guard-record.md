@@ -11,8 +11,10 @@
 |----|------|
 | 持久化 | `.git/horsewhip/guard-stats.json`（本地，勿提交） |
 | 三指标 | 越界尝试 · 成功拦截 · 拦截率 |
+| 边界扩大 | MCP `expand_boundary` 成功合并后记入 **边界扩大**（不计入越界尝试） |
+| 复查链 | 圈外写/编/提交 **未先 expand** → 守护记录事件带「未 expand」+ `.git/horsewhip/edit-blocked.json`（v2 `auditChain`） |
 | 近 7 天 | 柱状趋势 |
-| 最近事件 | 写盘还原 / 编辑拦截 / 提交拦截 + 文件路径 |
+| 最近事件 | 写盘还原 / 编辑拦截 / 提交拦截 / **边界扩大** + 路径 |
 | 分享 | **文本卡片** → 剪贴板 |
 | 入口 | 状态栏 `· 守护 N` · 侧栏 · 命令 **Horsewhip: 守护记录** |
 
@@ -74,7 +76,9 @@
 
 | 问题 | Phase 1 答案 | Phase 2 可加强 |
 |------|--------------|----------------|
-| 是否 MCP 写统计？ | **否**，扩展执法时记账 | 会话 ID 可来自 MCP lock |
+| 是否 MCP 写统计？ | **否**，扩展执法时记账；**expand** 由 MCP 信号触发扩展写入 | 会话 ID 可来自 MCP lock |
+| expand vs 越界？ | **expand** = 用户同意后 `horsewhip_expand_boundary` 合并路径；**越界** = 未 expand 即改圈外 | 会话维度可串联 lock→expand→overreach |
+| 越界复查链？ | `guard-stats.json` 事件 `auditChain` + `edit-blocked.json` v2 同字段 | commit 拦截同样带 `auditChain` |
 | 是否识别 AI？ | **否**，仅圈外拦截 | 会话维度近似「Agent 任务」 |
 | 圈内修改计数？ | **否** | 一般不做（非产品叙事） |
 | 去重 | 同路径 ~4s 内合并 | 可按需调整 |
@@ -88,7 +92,8 @@
 | `extension/src/guardStats.ts` | 持久化、聚合、分享文本 |
 | `extension/src/guardRecordPanel.ts` | 守护记录 Webview |
 | `extension/src/guardRecordHtml.ts` | 仪表盘 HTML |
-| `extension/src/boundaryEditGuard.ts` | write/edit 拦截记账 |
+| `extension/src/boundaryEditGuard.ts` | write/edit 拦截记账 + edit-blocked auditChain |
+| `extension/src/boundaryMcpBridge.ts` | expand 信号 → `recordGuardExpand` |
 | `extension/src/boundaryGuardHost.ts` | commit 拦截记账、状态栏 |
 
 ---

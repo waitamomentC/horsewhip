@@ -42,14 +42,15 @@ Agent 先问清或从上下文读取：
 
 ## 2. MCP 工具往返（Agent 按序调用）
 
-在**新对话**中严格按 [agent/skills/horsewhip/SKILL.md](../agent/skills/horsewhip/SKILL.md) 执行。  
+在**新对话**中输入 **`/horsewhip`** 加测试任务，或严格按 [agent/skills/horsewhip/SKILL.md](../agent/skills/horsewhip/SKILL.md) 执行。  
 测试用路径（按项目改）：`TEST_FILE=README.md` 或 `src/…` 中一个**已存在**的小文件；**禁止**改 horsewhip 产品仓。
 
 ### 2.1 锁定
 
 | # | 工具 | 参数要点 | 期望 |
 |---|------|----------|------|
-| 2.1 | `horsewhip_lock_paths` | `paths: [TEST_FILE]` | 返回 `ok: true`, `locked: true` |
+| 2.0 | `horsewhip_lock_paths` | `paths: ["src/"]` 或 `["src"]` | **必须失败**（`scope_too_broad`）；说明 MCP 最小锁定规则生效 |
+| 2.1 | `horsewhip_lock_paths` | `paths: [TEST_FILE]`（具体文件，非顶层目录） | 返回 `ok: true`, `locked: true` |
 | 2.2 | 磁盘 | 读 `.git/horsewhip/allowlist.json` | `locked: true`，`allowed` 含 `TEST_FILE`，`lockSource` 含 `mcp` |
 | 2.3 | `horsewhip_whip_ceremony` | `phase: "lock"` | 成功；`.git/horsewhip/mcp-signal.json` 更新 |
 
@@ -72,6 +73,8 @@ Agent 先问清或从上下文读取：
 | # | 操作 | 期望（记录实际行为） |
 |---|------|----------------------|
 | 2.8 | 故意修改 **不在 allowlist** 的另一文件并保存 | **完整版+已锁定**：写盘被还原或出现守门提示 / `edit-blocked.json` |
+| 2.8a | 读 `.git/horsewhip/edit-blocked.json` | v2 含 `auditChain.type: overreach_without_expand`、越界路径与当前 `pasture` |
+| 2.8b | 打开 **守护记录** | 最近事件含该路径，详情后缀 **未 expand**；越界尝试 +1 |
 | 2.9 | 未调用 `expand_boundary` 前 | **不得**静默改圈外文件 |
 
 > 若 2.8 未拦截：在报告中写明「当前未锁定 / guard 关闭 / 仅 commit 兜底」——供人工对照 [boundary-guard.md](./boundary-guard.md)。
@@ -82,6 +85,7 @@ Agent 先问清或从上下文读取：
 |---|------|------|
 | 2.10 | 向用户说明需扩大范围，**等待明确同意**（测试可用文字「同意扩大」） | 未同意前不调 `expand_boundary` |
 | 2.11 | `horsewhip_expand_boundary` | `allowed` 合并新路径 |
+| 2.11a | 守护记录 | **边界扩大** +1；最近事件显示 `+ 新路径`（绿色标签） |
 | 2.12 | `horsewhip_whip_ceremony` `phase: "expand"` | 成功（完整版应有第二段仪式信号） |
 
 ### 2.6 收工与解锁

@@ -47,6 +47,10 @@ export type McpSignalRecord = {
   playWhip?: boolean;
   summary?: string;
   phase?: 'lock' | 'expand';
+  /** expand_boundary: paths merged this call */
+  addedPaths?: string[];
+  /** expand_boundary: allowlist before merge */
+  previousAllowed?: string[];
 };
 
 export async function writeMcpSignal(
@@ -138,11 +142,18 @@ export async function readAllowlistRecord(
 const EDIT_BLOCKED_NAME = 'edit-blocked.json';
 
 export type EditBlockedRecord = {
-  version: 1;
+  version: 1 | 2;
   at: string;
   file: string;
   allowed: string[];
   message: string;
+  /** 复查链：圈外改动且尚未 expand_boundary */
+  auditChain?: {
+    type: 'overreach_without_expand';
+    attemptedPath: string;
+    pasture: string[];
+    recommend: string;
+  };
 };
 
 export function editBlockedFilePath(workspaceRoot: string): string {
@@ -156,11 +167,12 @@ export async function writeEditBlockedMarker(
   const file = editBlockedFilePath(workspaceRoot);
   await fs.promises.mkdir(path.dirname(file), { recursive: true });
   const body: EditBlockedRecord = {
-    version: 1,
+    version: payload.auditChain ? 2 : 1,
     at: payload.at ?? new Date().toISOString(),
     file: payload.file,
     allowed: payload.allowed,
     message: payload.message,
+    auditChain: payload.auditChain,
   };
   await fs.promises.writeFile(file, `${JSON.stringify(body, null, 2)}\n`, 'utf8');
 }

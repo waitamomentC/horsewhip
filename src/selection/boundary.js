@@ -184,6 +184,14 @@ function isBoundaryLocked() {
   return hw.state.lockedNodeIds.size > 0 || Boolean(hw.state.mcpBoundaryLocked);
 }
 
+function isMcpPanelReadOnly() {
+  return Boolean(hw.state.mcpBoundaryLocked);
+}
+
+function mcpPanelReadOnlyToast() {
+  hw.showCopyToast?.('Agent 圈定中 · 泳道只读，请等 Agent 完成');
+}
+
 function tryMapMcpPathsToNodes(paths) {
   if (!hw.state.parsed || !paths?.length) return;
   hw.refreshNodeIndex?.();
@@ -219,6 +227,7 @@ function applyBoundaryFromHost(files, locked, options = {}) {
     hw.state.lockedNodeIds.clear();
     hw.state.lockTargets = [];
     hw.state.boundaryFiles.clear();
+    document.body.classList.remove('hw-mcp-panel-readonly');
     hw.syncBoundaryBar();
     hw.updateSelectionVisuals();
     if (options.playWhip) hw.playWhipCrackSound();
@@ -230,8 +239,10 @@ function applyBoundaryFromHost(files, locked, options = {}) {
   hw.state.boundaryFiles.clear();
   list.forEach((p) => hw.state.boundaryFiles.add(p));
   hw.tryMapMcpPathsToNodes(list);
+  document.body.classList.toggle('hw-mcp-panel-readonly', true);
   hw.syncBoundaryBar();
   hw.updateSelectionVisuals();
+  hw.navigateMcpBoundaryPaths?.(list);
   if (options.playWhip) hw.playWhipCrackSound();
   if (options.toast) hw.showCopyToast?.(options.toast);
 }
@@ -249,6 +260,10 @@ function pushBoundaryLockToPlugin() {
 
 function pushBoundaryUnlockToPlugin() {
   if (!hw.isPluginHost() || !window.HorsewhipPluginBridge?.setBoundaryAllowlist) return;
+  if (isMcpPanelReadOnly()) {
+    mcpPanelReadOnlyToast();
+    return;
+  }
   window.HorsewhipPluginBridge.setBoundaryAllowlist([], false, []);
 }
 
@@ -276,7 +291,11 @@ function syncBoundaryBar() {
 
   if (hw.els.boundaryBar) hw.els.boundaryBar.hidden = !showBar;
   if (hw.els.boundaryTitle) {
-    hw.els.boundaryTitle.textContent = locked ? '跑马范围（仅此可改）' : '点选范围';
+    hw.els.boundaryTitle.textContent = mcpLocked
+      ? 'Agent 圈定（只读）'
+      : locked
+        ? '跑马范围（仅此可改）'
+        : '点选范围';
   }
   if (hw.els.boundaryCount) {
     if (locked) {
@@ -306,16 +325,24 @@ function syncBoundaryBar() {
     hw.els.boundaryPreview.textContent = '';
   }
   if (hw.els.btnBoundaryCopy) {
-    hw.els.btnBoundaryCopy.disabled = !selectedCount;
-    hw.els.btnBoundaryCopy.title = locked
-      ? '重新挥鞭圈定（替换当前锁定范围）'
-      : '挥鞭圈定（仅此范围可改）';
+    hw.els.btnBoundaryCopy.disabled = mcpLocked || !selectedCount;
+    hw.els.btnBoundaryCopy.title = mcpLocked
+      ? 'Agent 圈定中不可重新挥鞭'
+      : locked
+        ? '重新挥鞭圈定（替换当前锁定范围）'
+        : '挥鞭圈定（仅此范围可改）';
   }
   if (hw.els.btnBoundaryClear) {
+    hw.els.btnBoundaryClear.disabled = mcpLocked;
     hw.els.btnBoundaryClear.textContent = locked ? '解锁' : '清空';
-    hw.els.btnBoundaryClear.title = locked
-      ? '解除圈定，恢复自由改码'
-      : '清空点选';
+    hw.els.btnBoundaryClear.title = mcpLocked
+      ? 'Agent 圈定中不可解锁'
+      : locked
+        ? '解除圈定，恢复自由改码'
+        : '清空点选';
+  }
+  if (hw.els.boundaryBar) {
+    hw.els.boundaryBar.classList.toggle('hw-boundary--mcp-readonly', mcpLocked);
   }
   if (hw.els.btnBoundaryChat) {
     hw.els.btnBoundaryChat.disabled = !files.length;
@@ -324,6 +351,9 @@ function syncBoundaryBar() {
 
   if (hw.isPluginHost() && hw.state.catalog?.lanes?.length) {
     hw.updatePluginBar(hw.state.catalog.lanes.length);
+  }
+  if (hw.isPluginHost() && typeof hw.syncGuardArmButton === 'function') {
+    hw.syncGuardArmButton();
   }
   hw.syncFileRailBoundaryHighlight();
 }
@@ -372,6 +402,10 @@ function clearSelectionPreview() {
 }
 
 function clearNodeSelection() {
+  if (isMcpPanelReadOnly()) {
+    mcpPanelReadOnlyToast();
+    return;
+  }
   if (
     hw.state.selectedNodeIds.size === 0
     && hw.state.lockedNodeIds.size === 0
@@ -392,6 +426,10 @@ function clearNodeSelection() {
 
 function toggleSelectedNode(node) {
   if (!hw.nodeCanSelect(node) || !hw.state.parsed) return;
+  if (isMcpPanelReadOnly()) {
+    mcpPanelReadOnlyToast();
+    return;
+  }
   if (hw.state.selectedNodeIds.has(node.id)) {
     hw.state.selectedNodeIds.delete(node.id);
     if (hw.state.lastSelectedNodeId === node.id) {
@@ -579,6 +617,10 @@ function nodeCanWhip(node) {
 
 function lockBoundaryFromSelection(nodes, btnEl) {
   if (!nodes?.length) return;
+  if (isMcpPanelReadOnly()) {
+    mcpPanelReadOnlyToast();
+    return;
+  }
   const crackTarget = btnEl?.closest?.('.hw-whip-float') || btnEl;
   crackTarget?.classList.add('hw-whip-btn--crack', 'hw-whip-float--crack');
   hw.playWhipCrackSound();

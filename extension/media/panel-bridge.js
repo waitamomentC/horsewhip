@@ -567,6 +567,7 @@
           playWhip: Boolean(msg.playWhip),
           toast: msg.toast,
           ceremonyOnly: Boolean(msg.ceremonyOnly),
+          panelReadOnly: Boolean(msg.panelReadOnly),
         });
       };
       if (!window.HorsewhipApp) {

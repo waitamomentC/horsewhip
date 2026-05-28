@@ -15,7 +15,10 @@ import {
   pathIsUnderAllowlist,
 } from './boundaryGuard';
 import { clearEditBlockedMarker, writeEditBlockedMarker } from './boundaryPersist';
-import { recordGuardEvent } from './guardStats';
+import {
+  buildOverreachAuditChain,
+  recordGuardEvent,
+} from './guardStats';
 import { insertTextIntoChat } from './chatInsert';
 import { gitRestorePaths } from './gitRunner';
 import { isGuardIgnoredPath } from './boundaryGuard';
@@ -30,6 +33,31 @@ const perFileBypass = new Set<string>();
 const lastWarnAt = new Map<string, number>();
 let lastAiNotifyAt = 0;
 const revertingPaths = new Set<string>();
+
+async function recordOverreachIntercept(
+  workspaceRoot: string,
+  rel: string,
+  allowed: string[],
+  kind: 'write' | 'edit',
+  reason: 'no-pasture' | 'outside-pasture',
+): Promise<void> {
+  const auditChain = reason === 'outside-pasture' ? buildOverreachAuditChain(rel, allowed) : undefined;
+  const message = buildWriteBlockedPrompt(rel, allowed, reason);
+  await writeEditBlockedMarker(workspaceRoot, {
+    file: rel,
+    allowed,
+    message,
+    auditChain,
+  });
+  void recordGuardEvent(workspaceRoot, {
+    kind,
+    files: [rel],
+    source: reason === 'outside-pasture' ? 'outside_pasture' : reason,
+    pasture: [...allowed],
+    auditChain,
+    dedupeKey: `${kind}:${reason}:${rel}`,
+  });
+}
 
 function editGuardConfig(): {
   mode: 'off' | 'warn' | 'lock';
@@ -143,9 +171,13 @@ async function notifyEditBlocked(
   lastWarnAt.set(rel, now);
 
   const message = buildEditBlockedPrompt(rel, allowed);
-  await writeEditBlockedMarker(workspaceRoot, { file: rel, allowed, message });
-
-  void recordGuardEvent(workspaceRoot, { kind: 'edit', files: [rel] });
+  await recordOverreachIntercept(
+    workspaceRoot,
+    rel,
+    allowed,
+    'edit',
+    !allowed.length ? 'no-pasture' : 'outside-pasture',
+  );
 
   const noPasture = !allowed.length;
   const pick = await vscode.window.showWarningMessage(
@@ -202,12 +234,13 @@ async function onActiveEditorChanged(workspaceRoot: string): Promise<void> {
     const last = lastWarnAt.get(rel) ?? 0;
     if (Date.now() - last >= WARN_DEBOUNCE_MS) {
       lastWarnAt.set(rel, Date.now());
-      await writeEditBlockedMarker(workspaceRoot, {
-        file: rel,
+      await recordOverreachIntercept(
+        workspaceRoot,
+        rel,
         allowed,
-        message: buildEditBlockedPrompt(rel, allowed),
-      });
-      void recordGuardEvent(workspaceRoot, { kind: 'edit', files: [rel] });
+        'edit',
+        reason === 'no-pasture' ? 'no-pasture' : 'outside-pasture',
+      );
       const noPasture = reason === 'no-pasture';
       void vscode.window
         .showWarningMessage(
@@ -260,9 +293,7 @@ export async function enforceWriteGuard(
   await refreshEditorsForBoundary(workspaceRoot);
 
   const prompt = buildWriteBlockedPrompt(rel, allowed, reason);
-  await writeEditBlockedMarker(workspaceRoot, { file: rel, allowed, message: prompt });
-
-  void recordGuardEvent(workspaceRoot, { kind: 'write', files: [rel] });
+  await recordOverreachIntercept(workspaceRoot, rel, allowed, 'write', reason);
 
   const now = Date.now();
   if (notifyAiOnWrite && offerToChat && now - lastAiNotifyAt >= AI_NOTIFY_DEBOUNCE_MS) {

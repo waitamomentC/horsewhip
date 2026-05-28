@@ -129,7 +129,9 @@ Claude Code **不读** `.cursor/skills/`。需要：
 /skills
 ```
 
-应能看到 `horsewhip`。也可手动：`/horsewhip`（以目录名为准）。
+应能看到 `horsewhip`。也可手动：**`/horsewhip <任务>`**（以目录名为准）— **改代码前应用此命令强制走 lock 流程**，不要等 Agent 自己想起 Skill。
+
+普通对话 **不会** 自动执行 Skill；这是预期行为。需要边界纪律时请显式 `/horsewhip`。
 
 ---
 

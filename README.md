@@ -122,7 +122,7 @@ sequenceDiagram
 
 | 阶段 | Agent | 你 |
 |------|-------|-----|
-| 开任务 | — | Vibecode 描述需求；可开 Horsewhip 面板 |
+| 开任务 | 输入 **`/horsewhip <任务>`** 强制走 Skill（普通对话不会自动圈地） | Vibecode 描述需求；可开 Horsewhip 面板 |
 | 圈地 | `lock_paths` | 边界栏显示路径 |
 | 开工 | `whip_ceremony` lock | **第一声鞭** |
 | 改码 | 只动 allowlist 内 | 圈外保存被还原 |

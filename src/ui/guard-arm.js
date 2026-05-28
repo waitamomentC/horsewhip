@@ -7,10 +7,14 @@ function syncGuardArmButton() {
   if (!btn) return;
 
   const on = hw.state.guardActive;
+  const mcpReadOnly = Boolean(hw.state.mcpBoundaryLocked);
   btn.textContent = on ? '失效' : '激活';
-  btn.title = on
-    ? '守门已开启：选中节点后仅圈内可改；未选中时可自由改码。点击「失效」关闭守门。'
-    : '守门已关闭：写盘与 commit 均不拦截。点击「激活」恢复守门。';
+  btn.disabled = mcpReadOnly && on;
+  btn.title = mcpReadOnly && on
+    ? 'Agent 圈定中 · 不可关闭守门'
+    : on
+      ? '守门已开启：选中节点后仅圈内可改；未选中时可自由改码。点击「失效」关闭守门。'
+      : '守门已关闭：写盘与 commit 均不拦截。点击「激活」恢复守门。';
   btn.setAttribute('aria-pressed', on ? 'true' : 'false');
 
   if (wrap) {
@@ -37,6 +41,10 @@ function setGuardActive(active, { notifyHost = true } = {}) {
 }
 
 function toggleGuardActive() {
+  if (hw.state.mcpBoundaryLocked && hw.state.guardActive) {
+    hw.showCopyToast?.('Agent 圈定中 · 不可关闭守门');
+    return;
+  }
   setGuardActive(!hw.state.guardActive);
 }
 

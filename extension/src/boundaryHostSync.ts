@@ -54,6 +54,7 @@ export async function applyBoundaryFromExternalSource(
       playWhip: Boolean(options.playWhip),
       toast: options.toast,
       ceremony: options.ceremony,
+      panelReadOnly: locked && files.length > 0,
     });
   }
 

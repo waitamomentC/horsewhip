@@ -158,6 +158,7 @@ export class HorsewhipTimeline {
     toast?: string;
     ceremony?: 'task_complete';
     ceremonyOnly?: boolean;
+    panelReadOnly?: boolean;
   }): void {
     this.webview.postMessage({
       type: 'syncBoundaryFromHost',
@@ -167,6 +168,7 @@ export class HorsewhipTimeline {
       toast: payload.toast,
       ceremony: payload.ceremony,
       ceremonyOnly: Boolean(payload.ceremonyOnly),
+      panelReadOnly: Boolean(payload.panelReadOnly),
     });
   }
 
@@ -244,7 +246,7 @@ export class HorsewhipTimeline {
       const rec = await readAllowlistRecord(root);
       if (rec?.lockSource !== 'mcp') return;
       const files = getBoundaryAllowlist();
-      this.postBoundarySync({ files, locked: true, playWhip: false });
+      this.postBoundarySync({ files, locked: true, playWhip: false, panelReadOnly: true });
       await syncBoundaryLockFromWebview(root, files, true);
     });
     this.projectName = sanitizeRepoName(state.folderName);
@@ -632,6 +634,12 @@ export class HorsewhipTimeline {
       if (!this.workspaceRoot) return;
       void (async () => {
         const active = Boolean(msg.active);
+        const { isMcpAgentPanelLock, MCP_PANEL_READONLY_MSG } = await import('./mcpPanelGuard');
+        if (!active && (await isMcpAgentPanelLock(this.workspaceRoot!))) {
+          vscode.window.showWarningMessage(MCP_PANEL_READONLY_MSG);
+          await this.pushRepoStatus();
+          return;
+        }
         await setGuardActive(active);
         const { refreshEditorsForBoundary } = await import('./boundaryEditGuard');
         await refreshEditorsForBoundary(this.workspaceRoot!);
@@ -785,6 +793,22 @@ export class HorsewhipTimeline {
       const locked = Boolean(msg.locked);
       const targets = Array.isArray(msg.targets) ? msg.targets : [];
       void (async () => {
+        if (this.workspaceRoot) {
+          const { shouldBlockWebviewBoundaryChange, MCP_PANEL_READONLY_MSG } = await import(
+            './mcpPanelGuard'
+          );
+          const gate = await shouldBlockWebviewBoundaryChange(this.workspaceRoot, { locked, files });
+          if (gate.block) {
+            vscode.window.showWarningMessage(MCP_PANEL_READONLY_MSG);
+            this.postBoundarySync({
+              files: gate.currentFiles,
+              locked: true,
+              playWhip: false,
+              panelReadOnly: true,
+            });
+            return;
+          }
+        }
         const branchInfo = this.workspaceRoot
           ? await gitBranchDisplay(this.workspaceRoot)
           : { label: '', detached: false };

@@ -24,7 +24,7 @@ import {
   writeCommitBlockedMarker,
 } from './boundaryPersist';
 import { fetchWorkingTreeChangedFiles, gitRestorePaths } from './gitRunner';
-import { getCachedTotals, onGuardStatsChanged, recordGuardEvent } from './guardStats';
+import { getCachedTotals, onGuardStatsChanged, recordGuardEvent, buildOverreachAuditChain } from './guardStats';
 import { insertTextIntoChat } from './chatInsert';
 
 let statusBar: vscode.StatusBarItem | undefined;
@@ -224,6 +224,8 @@ export async function handleCommitBlocked(
       kind: 'commit',
       files: r.overreach,
       source,
+      pasture: r.allowed,
+      auditChain: buildOverreachAuditChain(r.overreach[0], r.allowed),
       dedupeKey: `commit:${source}:${r.overreach.slice().sort().join('|')}`,
     });
   }
@@ -320,6 +322,8 @@ export async function processCommitBlockedMarker(workspaceRoot: string): Promise
       kind: 'commit',
       files: marker.overreach,
       source: marker.source,
+      pasture: result.allowed,
+      auditChain: buildOverreachAuditChain(marker.overreach[0], result.allowed),
       dedupeKey: `commit-hook:${marker.at}:${marker.overreach.slice().sort().join('|')}`,
     });
   }

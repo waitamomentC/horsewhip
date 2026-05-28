@@ -5,6 +5,7 @@ import { applyBoundaryFromExternalSource, syncBoundaryMemoryFromDisk } from './b
 import { getBoundaryAllowlist, getEffectiveBoundaryLocked, reloadBoundaryFromDisk } from './boundaryAllowlist';
 import { HorsewhipPanel } from './horsewhipPanel';
 import { playWhipSoundFromHost } from './whipSoundHost';
+import { recordGuardExpand } from './guardStats';
 import {
   allowlistFilePath,
   clearMcpSignal,
@@ -103,11 +104,32 @@ async function handleMcpSignal(
     return;
   }
 
+  const allowedBefore = [...getBoundaryAllowlist()];
+  const recBefore = await readAllowlistRecord(workspaceRoot);
+  const beforeDisk = signal.previousAllowed ?? recBefore?.allowed ?? allowedBefore;
+
   await applyBoundaryFromExternalSource(context, workspaceRoot, {
     playWhip,
     toast,
     syncWebview: true,
   });
+
+  if (signal.type === 'expand') {
+    const after = [...getBoundaryAllowlist()];
+    const added =
+      signal.addedPaths?.length
+        ? [...signal.addedPaths]
+        : after.filter((p) => !new Set(beforeDisk).has(p));
+    if (added.length) {
+      void recordGuardExpand(workspaceRoot, {
+        addedPaths: added,
+        allowedBefore: beforeDisk,
+        allowedAfter: after,
+        source: 'mcp',
+      });
+    }
+  }
+
   await clearMcpSignal(workspaceRoot);
 }
 

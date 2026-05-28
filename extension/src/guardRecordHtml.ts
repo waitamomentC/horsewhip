@@ -1,4 +1,4 @@
-import type { GuardStatsView } from './guardStats';
+import type { GuardStatsEvent, GuardStatsView } from './guardStats';
 
 function escapeHtml(s: string): string {
   return s
@@ -12,7 +12,18 @@ function kindLabel(kind: string): string {
   if (kind === 'write') return '写盘还原';
   if (kind === 'edit') return '编辑拦截';
   if (kind === 'commit') return '提交拦截';
+  if (kind === 'expand') return '边界扩大';
   return kind;
+}
+
+function eventDetail(e: GuardStatsView['events'][0]): string {
+  if (e.kind === 'expand' && e.addedPaths?.length) {
+    return `+ ${e.addedPaths.slice(0, 4).join(', ')}${e.addedPaths.length > 4 ? ` …+${e.addedPaths.length - 4}` : ''}`;
+  }
+  const files = e.files.slice(0, 4).join(', ');
+  const suffix = e.files.length > 4 ? ` …+${e.files.length - 4}` : '';
+  if (e.auditChain) return `${files}${suffix} · 未 expand`;
+  return `${files}${suffix}`;
 }
 
 function formatTime(iso: string): string {
@@ -38,8 +49,8 @@ export function buildGuardRecordHtml(view: GuardStatsView, projectName: string):
       ? '<p class="empty">尚无记录。开启守门后，AI 越界尝试会累积在这里。</p>'
       : `<ul class="events">${view.events
           .map(
-            (e) =>
-              `<li class="event"><span class="event-kind">${escapeHtml(kindLabel(e.kind))}</span><span class="event-time">${escapeHtml(formatTime(e.at))}</span><span class="event-files">${escapeHtml(e.files.slice(0, 4).join(', '))}${e.files.length > 4 ? ` …+${e.files.length - 4}` : ''}</span></li>`,
+            (e: GuardStatsEvent) =>
+              `<li class="event event--${escapeHtml(e.kind)}"><span class="event-kind">${escapeHtml(kindLabel(e.kind))}</span><span class="event-time">${escapeHtml(formatTime(e.at))}</span><span class="event-files">${escapeHtml(eventDetail(e))}</span></li>`,
           )
           .join('')}</ul>`;
 
@@ -53,7 +64,7 @@ export function buildGuardRecordHtml(view: GuardStatsView, projectName: string):
 :root{--bg:#07080a;--fg:#eef0f4;--muted:#9399a8;--accent:#6d7ce8;--accent-soft:rgba(109,124,232,.18);--warn:#e5b84a;--border:rgba(255,255,255,.08);--surface:#101218}
 *{box-sizing:border-box}body{margin:0;min-height:100vh;background:var(--bg);color:var(--fg);font-family:'Inter','PingFang SC',system-ui,sans-serif;font-size:14px}
 .wrap{max-width:720px;margin:0 auto;padding:28px 20px 48px}.head{margin-bottom:28px}.head h1{margin:0 0 6px;font-size:22px;font-weight:650}
-.head p{margin:0;color:var(--muted);font-size:13px}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:28px}
+.head p{margin:0;color:var(--muted);font-size:13px}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:28px}
 .metric{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 16px;text-align:center}
 .metric-num{font-size:42px;font-weight:700;line-height:1;font-variant-numeric:tabular-nums}
 .metric-num.accent{color:var(--accent)}.metric-num.warn{color:var(--warn)}.metric-num.ok{color:#5fd38d}
@@ -65,7 +76,7 @@ export function buildGuardRecordHtml(view: GuardStatsView, projectName: string):
 button{border:1px solid var(--border);background:var(--surface);color:var(--fg);border-radius:8px;padding:8px 14px;font-size:13px;cursor:pointer}
 button.primary{background:var(--accent);border-color:transparent;color:#fff;font-weight:600}
 .events{list-style:none;margin:0;padding:0}.event{display:grid;grid-template-columns:88px 108px 1fr;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);font-size:12px}
-.event:last-child{border-bottom:none}.event-kind{color:var(--warn);font-weight:600}.event-time{color:var(--muted)}.event-files{font-family:ui-monospace,monospace;word-break:break-all}
+.event:last-child{border-bottom:none}.event-kind{color:var(--warn);font-weight:600}.event--expand .event-kind{color:#5fd38d}.event-time{color:var(--muted)}.event-files{font-family:ui-monospace,monospace;word-break:break-all}
 .empty{color:var(--muted);margin:0;font-size:13px}.footnote{color:var(--muted);font-size:11px;margin-top:8px}
 </style>
 </head>
@@ -75,6 +86,7 @@ button.primary{background:var(--accent);border-color:transparent;color:#fff;font
 <section class="metrics">
 <div class="metric"><div class="metric-num warn">${view.totals.attempts}</div><div class="metric-label">越界尝试</div></div>
 <div class="metric"><div class="metric-num accent">${view.totals.blocked}</div><div class="metric-label">成功拦截</div></div>
+<div class="metric"><div class="metric-num ok">${view.totals.expansions}</div><div class="metric-label">边界扩大</div></div>
 <div class="metric"><div class="metric-num ok">${view.totals.rate}<span style="font-size:22px">%</span></div><div class="metric-label">拦截率</div></div>
 </section>
 <div class="actions"><button class="primary" id="share">复制分享卡片</button><button id="refresh">刷新</button><button id="timeline">打开泳道</button></div>

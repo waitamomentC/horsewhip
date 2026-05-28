@@ -89,6 +89,14 @@ fs.writeFileSync(
 fs.rmSync(skillDest, { recursive: true, force: true });
 fs.cpSync(skillSrc, skillDest, { recursive: true });
 
+const commandSrc = path.join(repoRoot, 'agent', 'commands', 'horsewhip.md');
+const commandDestDir = path.join(extRoot, 'media', 'commands');
+if (fs.existsSync(commandSrc)) {
+  fs.mkdirSync(commandDestDir, { recursive: true });
+  fs.copyFileSync(commandSrc, path.join(commandDestDir, 'horsewhip.md'));
+  console.log('synced agent/commands/horsewhip.md → extension/media/commands/horsewhip.md');
+}
+
 const bundleKb = Math.round(fs.statSync(mcpBundleOut).size / 1024);
 console.log(`synced MCP bundle (${bundleKb} KB, 1 file) → extension/media/mcp/dist/index.js`);
 console.log('synced agent/skills/horsewhip → extension/media/skills/horsewhip');

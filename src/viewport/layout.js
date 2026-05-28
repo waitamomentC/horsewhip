@@ -198,18 +198,20 @@ function animateViewportTo(targetPanX, targetScrollTop, duration = 420) {
   });
 }
 
-function focusFileLane(filePath) {
+function focusFileLane(filePath, options = {}) {
   if (!hw.state.parsed || !hw.state.catalog || !filePath) return;
   const parsed = hw.state.parsed;
   const columnV = hw.latestVersionColumnForFile(parsed, filePath);
   const laneIndex = hw.findLaneIndexForFilePath(filePath);
+  const allowScroll = options.allowScroll !== false;
 
   hw.state.focusedFilePath = filePath;
   hw.state.focusGraphX = columnV;
   hw.syncFileRailFocusHighlight();
 
   const panX = hw.panXForColumnFocus(columnV);
-  const scrollTop = laneIndex >= 0 ? hw.scrollTopForLaneCenter(laneIndex) : hw.state.scrollTop;
+  const scrollTop =
+    allowScroll && laneIndex >= 0 ? hw.scrollTopForLaneCenter(laneIndex) : hw.state.scrollTop ?? 0;
 
   hw.updateGraphFocus();
 

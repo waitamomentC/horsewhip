@@ -11,6 +11,7 @@ import '../lanes/bounds.js';
 import '../lanes/catalog.js';
 import '../graph/build.js';
 import '../selection/boundary.js';
+import '../selection/mcp-boundary-navigate.js';
 import '../viewport/layout.js';
 import '../graph/geometry.js';
 import '../graph/svg-nodes.js';

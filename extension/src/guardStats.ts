@@ -6,7 +6,14 @@ const STATS_NAME = 'guard-stats.json';
 const MAX_EVENTS = 120;
 const DEDUPE_MS = 4000;
 
-export type GuardEventKind = 'write' | 'edit' | 'commit';
+export type GuardEventKind = 'write' | 'edit' | 'commit' | 'expand';
+
+export type GuardAuditChain = {
+  type: 'overreach_without_expand';
+  attemptedPath: string;
+  pasture: string[];
+  recommend: string;
+};
 
 export type GuardStatsEvent = {
   at: string;
@@ -15,6 +22,13 @@ export type GuardStatsEvent = {
   attempts: number;
   blocked: number;
   source?: string;
+  /** Paths added when kind === expand */
+  addedPaths?: string[];
+  allowedBefore?: string[];
+  allowedAfter?: string[];
+  /** Current pasture snapshot when blocked outside allowlist */
+  pasture?: string[];
+  auditChain?: GuardAuditChain;
 };
 
 export type GuardStatsDay = {
@@ -25,13 +39,13 @@ export type GuardStatsDay = {
 export type GuardStatsFile = {
   version: 1;
   updatedAt: string;
-  totals: { attempts: number; blocked: number };
+  totals: { attempts: number; blocked: number; expansions: number };
   byDay: Record<string, GuardStatsDay>;
   events: GuardStatsEvent[];
 };
 
 export type GuardStatsView = {
-  totals: { attempts: number; blocked: number; rate: number };
+  totals: { attempts: number; blocked: number; expansions: number; rate: number };
   week: Array<{ day: string; label: string; attempts: number; blocked: number }>;
   events: GuardStatsEvent[];
   workspaceRoot: string;
@@ -55,9 +69,22 @@ function emptyStats(): GuardStatsFile {
   return {
     version: 1,
     updatedAt: new Date().toISOString(),
-    totals: { attempts: 0, blocked: 0 },
+    totals: { attempts: 0, blocked: 0, expansions: 0 },
     byDay: {},
     events: [],
+  };
+}
+
+export function buildOverreachAuditChain(
+  attemptedPath: string,
+  pasture: string[],
+): GuardAuditChain {
+  return {
+    type: 'overreach_without_expand',
+    attemptedPath,
+    pasture: [...pasture],
+    recommend:
+      '路径不在当前 allowlist。须先向用户说明并获同意后调用 horsewhip_expand_boundary；未 expand 前再次改该路径会记入守护记录。',
   };
 }
 
@@ -84,6 +111,9 @@ export async function loadGuardStats(workspaceRoot: string): Promise<GuardStatsF
       statsCache.set(workspaceRoot, fresh);
       return fresh;
     }
+    if (typeof data.totals.expansions !== 'number') {
+      data.totals.expansions = 0;
+    }
     statsCache.set(workspaceRoot, data);
     return data;
   } catch {
@@ -108,8 +138,11 @@ export async function recordGuardEvent(
     files: string[];
     source?: string;
     dedupeKey?: string;
+    pasture?: string[];
+    auditChain?: GuardAuditChain;
   },
 ): Promise<GuardStatsFile | null> {
+  if (payload.kind === 'expand') return null;
   const files = [...new Set(payload.files.filter(Boolean))];
   if (!files.length && payload.kind !== 'commit') return null;
 
@@ -135,6 +168,50 @@ export async function recordGuardEvent(
     attempts,
     blocked,
     source: payload.source,
+    pasture: payload.pasture?.length ? [...payload.pasture] : undefined,
+    auditChain: payload.auditChain,
+  });
+  if (stats.events.length > MAX_EVENTS) stats.events.length = MAX_EVENTS;
+  stats.updatedAt = at;
+
+  statsCache.set(workspaceRoot, stats);
+  await fs.promises.mkdir(path.dirname(statsPath(workspaceRoot)), { recursive: true });
+  await fs.promises.writeFile(statsPath(workspaceRoot), `${JSON.stringify(stats, null, 2)}\n`, 'utf8');
+  changeEmitter.fire(workspaceRoot);
+  return stats;
+}
+
+export async function recordGuardExpand(
+  workspaceRoot: string,
+  payload: {
+    addedPaths: string[];
+    allowedBefore: string[];
+    allowedAfter: string[];
+    source?: string;
+  },
+): Promise<GuardStatsFile | null> {
+  const added = [...new Set(payload.addedPaths.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  if (!added.length) return null;
+
+  const dedupeKey = `expand:${added.join('|')}:${payload.allowedBefore.slice().sort().join('|')}`;
+  if (!shouldRecord(workspaceRoot, dedupeKey)) return null;
+
+  const stats = await loadGuardStats(workspaceRoot);
+  const at = new Date().toISOString();
+  const day = dayKey(at);
+
+  stats.totals.expansions += 1;
+  if (!stats.byDay[day]) stats.byDay[day] = { attempts: 0, blocked: 0 };
+  stats.events.unshift({
+    at,
+    kind: 'expand',
+    files: added,
+    attempts: 0,
+    blocked: 0,
+    source: payload.source ?? 'mcp',
+    addedPaths: added,
+    allowedBefore: [...payload.allowedBefore],
+    allowedAfter: [...payload.allowedAfter],
   });
   if (stats.events.length > MAX_EVENTS) stats.events.length = MAX_EVENTS;
   stats.updatedAt = at;
@@ -161,6 +238,7 @@ export async function buildGuardStatsView(workspaceRoot: string): Promise<GuardS
   return {
     totals: {
       ...stats.totals,
+      expansions: stats.totals.expansions ?? 0,
       rate: ratePercent(stats.totals.attempts, stats.totals.blocked),
     },
     week,
@@ -178,6 +256,7 @@ export function buildShareCard(view: GuardStatsView, projectName: string): strin
     `项目：${projectName}`,
     '',
     `累计：AI 越界尝试 ${view.totals.attempts} 次 · 成功拦截 ${view.totals.blocked} 次（${view.totals.rate}%）`,
+    `边界扩大 ${view.totals.expansions} 次（经 expand_boundary 合法纳入）`,
     `近 7 天：越界 ${weekAttempts} 次 · 拦截 ${weekBlocked} 次（${weekRate}%）`,
     '',
     '边界内改码，圈外一律拦下。',

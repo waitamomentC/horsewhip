@@ -16,10 +16,10 @@ npm run setup:agent -- --project /path/to/your-app
 
 | 工具 | 说明 |
 |------|------|
-| `horsewhip_lock_paths` | 锁定路径 → allowlist |
+| `horsewhip_lock_paths` | 锁定路径 → allowlist（**最小范围**：具体文件或 ≥2 层子目录；拒绝 `src/` 等） |
 | `horsewhip_unlock` | 清空 |
 | `horsewhip_get_boundary` | 读 allowlist + edit-blocked |
-| `horsewhip_expand_boundary` | 合并路径（须已 locked） |
+| `horsewhip_expand_boundary` | 合并路径（须已 locked；用户同意后可用更宽范围） |
 | `horsewhip_suggest_scope` | 占位（4B） |
 | `horsewhip_whip_ceremony` | 鞭声 + UI（lock / expand） |
 | `horsewhip_task_complete` | 收工鞭声 |
@@ -29,6 +29,7 @@ npm run setup:agent -- --project /path/to/your-app
 ```bash
 npm install
 npm run build
+npm test    # scopePolicy 单元测试
 npm start   # stdio MCP
 ```
 

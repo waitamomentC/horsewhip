@@ -144,8 +144,10 @@ function syncFuseBar() {
   if (hw.els.btnFuseChat) hw.els.btnFuseChat.disabled = !show;
 
   if (show && hw.isPluginHost() && window.HorsewhipPluginBridge?.setBoundaryAllowlist) {
-    // 融合预选 ≠ 挥鞭圈定，不得自动 locked
-    window.HorsewhipPluginBridge.setBoundaryAllowlist([], false);
+    if (!hw.state.mcpBoundaryLocked) {
+      // 融合预选 ≠ 挥鞭圈定，不得自动 locked
+      window.HorsewhipPluginBridge.setBoundaryAllowlist([], false);
+    }
   } else if (!show && hw.isPluginHost()) {
     hw.syncBoundaryBar();
   }
