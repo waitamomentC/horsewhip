@@ -24,15 +24,36 @@ export function setBoundaryAllowlistWorkspaceRoot(root: string | undefined): voi
   }
   void readAllowlistRecord(root).then((rec) => {
     if (workspaceRootForPersist !== root) return;
-    // 不以磁盘为准自动「上锁」——必须本次会话在泳道点选节点（避免 UI 未圈定却放行）
+    guardActive = rec?.guardActive !== false;
+    if (rec?.locked && rec.allowed?.length) {
+      allowlist = [...new Set(rec.allowed.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+      lockTargets = Array.isArray(rec.targets) ? rec.targets : [];
+      boundaryLocked = true;
+      return;
+    }
     boundaryLocked = false;
-    guardActive = true;
     allowlist = [];
     lockTargets = [];
-    if (rec?.locked || rec?.guardActive) {
-      void persistAllowlistToDisk(root, [], false, [], '', true);
-    }
   });
+}
+
+/** Reload in-memory boundary from `.git/horsewhip/allowlist.json` (e.g. MCP wrote disk). */
+export async function reloadBoundaryFromDisk(workspaceRoot: string): Promise<boolean> {
+  const rec = await readAllowlistRecord(workspaceRoot);
+  if (workspaceRootForPersist && workspaceRootForPersist !== workspaceRoot) {
+    workspaceRootForPersist = workspaceRoot;
+  }
+  if (!rec) {
+    allowlist = [];
+    lockTargets = [];
+    boundaryLocked = false;
+    return false;
+  }
+  allowlist = [...new Set(rec.allowed.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+  lockTargets = Array.isArray(rec.targets) ? rec.targets : [];
+  boundaryLocked = Boolean(rec.locked) && allowlist.length > 0;
+  guardActive = rec.guardActive !== false;
+  return boundaryLocked;
 }
 
 export async function setBoundaryAllowlist(
@@ -120,9 +141,12 @@ export async function getEffectiveLockTargets(workspaceRoot?: string): Promise<P
   return Array.isArray(rec?.targets) ? rec!.targets! : [];
 }
 
-/** 仅以本次 webview 挥鞭为准；不读磁盘 locked（防残留误放行）。 */
-export async function getEffectiveBoundaryLocked(_workspaceRoot?: string): Promise<boolean> {
-  return isBoundaryLocked();
+/** Session memory first; fall back to disk when hooks run before webview reload. */
+export async function getEffectiveBoundaryLocked(workspaceRoot?: string): Promise<boolean> {
+  if (isBoundaryLocked()) return true;
+  if (!workspaceRoot) return false;
+  const rec = await readAllowlistRecord(workspaceRoot);
+  return Boolean(rec?.locked) && (rec?.allowed?.length ?? 0) > 0;
 }
 
 export async function appendToBoundaryAllowlist(paths: string[]): Promise<void> {

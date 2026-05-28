@@ -5,7 +5,8 @@
   "description": "Horsewhip web assets & tooling (extension lives in extension/)",
   "scripts": {
     "build:web": "esbuild src/app/main.js --bundle --outfile=script.js --format=iife",
-    "build:extension": "npm run build:web && node extension/scripts/sync-web-assets.js && npm run compile --prefix extension"
+    "build:extension": "npm run build:web && node extension/scripts/sync-web-assets.js && npm run compile --prefix extension",
+    "build:mcp": "npm run build --prefix agent/mcp"
   },
   "devDependencies": {
     "esbuild": "^0.25.0"

@@ -546,6 +546,23 @@
     const msg = event.data;
     if (!msg) return;
 
+    if (msg.type === 'syncBoundaryFromHost') {
+      const apply = () => {
+        window.HorsewhipApp?.applyBoundaryFromHost?.(msg.files || [], Boolean(msg.locked), {
+          playWhip: Boolean(msg.playWhip),
+          toast: msg.toast,
+          ceremonyOnly: Boolean(msg.ceremonyOnly),
+        });
+      };
+      if (!window.HorsewhipApp) {
+        pendingAppMessages.push(msg);
+        whenHorsewhipAppReady(apply);
+        return;
+      }
+      apply();
+      return;
+    }
+
     if (msg.type === 'guardStatus') {
       applyGuardStatus(msg);
       return;

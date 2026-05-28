@@ -40,6 +40,8 @@ const state = {
   headSnapshotBeforeLoad: null,
   /** 插件顶栏「激活」后才启用写盘/commit 守门（默认激活；未选中节点时可自由改码） */
   guardActive: true,
+  /** MCP / extension host locked paths without graph node selection */
+  mcpBoundaryLocked: false,
 };
 
 let whipAudioContext = null;

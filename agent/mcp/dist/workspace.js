@@ -1,0 +1,38 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+export function resolveWorkspaceRoot() {
+    const env = process.env.HORSEWHIP_WORKSPACE?.trim();
+    if (env)
+        return path.resolve(env);
+    return path.resolve(process.cwd());
+}
+export function assertGitWorkspace(workspaceRoot) {
+    const head = path.join(workspaceRoot, '.git', 'HEAD');
+    if (!fs.existsSync(head)) {
+        throw new Error(`Not a git workspace: ${workspaceRoot}. Open a repo root or set HORSEWHIP_WORKSPACE.`);
+    }
+}
+export function normalizeRelPaths(workspaceRoot, paths) {
+    const root = path.resolve(workspaceRoot);
+    const out = [];
+    for (const raw of paths) {
+        if (!raw || typeof raw !== 'string')
+            continue;
+        const cleaned = raw.replace(/\\/g, '/').replace(/^\.\/+/, '');
+        if (path.isAbsolute(cleaned)) {
+            const rel = path.relative(root, cleaned);
+            if (rel.startsWith('..') || path.isAbsolute(rel)) {
+                throw new Error(`Path escapes workspace: ${raw}`);
+            }
+            out.push(rel.split(path.sep).join('/'));
+        }
+        else {
+            const segments = cleaned.split('/').filter((s) => s && s !== '..');
+            if (segments.some((s) => s === '..')) {
+                throw new Error(`Invalid path: ${raw}`);
+            }
+            out.push(segments.join('/'));
+        }
+    }
+    return [...new Set(out.filter(Boolean))].sort((a, b) => a.localeCompare(b));
+}

@@ -113,7 +113,9 @@
     viewportInteracting: false,
     headSnapshotBeforeLoad: null,
     /** 插件顶栏「激活」后才启用写盘/commit 守门（默认激活；未选中节点时可自由改码） */
-    guardActive: true
+    guardActive: true,
+    /** MCP / extension host locked paths without graph node selection */
+    mcpBoundaryLocked: false
   };
   var whipAudioContext = null;
   var whipCrackBuffer = null;
@@ -2219,12 +2221,63 @@ ${lines}
     return [...folders, ...prunedFiles];
   }
   function rebuildBoundaryFromNodes() {
+    if (hw.state.mcpBoundaryLocked) return;
     hw.state.boundaryFiles.clear();
     const sourceIds = hw.state.lockedNodeIds.size ? hw.state.lockedNodeIds : hw.state.selectedNodeIds;
     pathsFromNodeIds(sourceIds).forEach((p) => hw.state.boundaryFiles.add(p));
   }
   function isBoundaryLocked() {
-    return hw.state.lockedNodeIds.size > 0;
+    return hw.state.lockedNodeIds.size > 0 || Boolean(hw.state.mcpBoundaryLocked);
+  }
+  function tryMapMcpPathsToNodes(paths) {
+    if (!hw.state.parsed || !paths?.length) return;
+    hw.refreshNodeIndex?.();
+    const want = new Set(paths.filter((p) => p && !hw.isFolderBoundaryPath(p)));
+    if (!want.size) return;
+    const nodes = Object.values(hw.state.nodeIndex || {});
+    want.forEach((filePath) => {
+      const node = nodes.find((n) => {
+        if (!n?.id || hw.state.lockedNodeIds.has(n.id)) return false;
+        const primary = n.filePath || n.files?.[0];
+        if (primary === filePath) return true;
+        return Array.isArray(n.files) && n.files.includes(filePath);
+      });
+      if (node?.id) hw.state.lockedNodeIds.add(node.id);
+    });
+    if (hw.state.lockedNodeIds.size) {
+      hw.state.lockTargets = hw.lockTargetsFromNodes(
+        [...hw.state.lockedNodeIds].map((id) => hw.state.nodeIndex[id]).filter(Boolean)
+      );
+    }
+  }
+  function applyBoundaryFromHost(files, locked, options = {}) {
+    const list = Array.isArray(files) ? files.filter(Boolean) : [];
+    if (options.ceremonyOnly) {
+      if (options.playWhip) hw.playWhipCrackSound();
+      if (options.toast) hw.showCopyToast?.(options.toast);
+      return;
+    }
+    hw.state.selectedNodeIds.clear();
+    if (!locked || !list.length) {
+      hw.state.mcpBoundaryLocked = false;
+      hw.state.lockedNodeIds.clear();
+      hw.state.lockTargets = [];
+      hw.state.boundaryFiles.clear();
+      hw.syncBoundaryBar();
+      hw.updateSelectionVisuals();
+      if (options.playWhip) hw.playWhipCrackSound();
+      return;
+    }
+    hw.state.mcpBoundaryLocked = true;
+    hw.state.lockedNodeIds.clear();
+    hw.state.lockTargets = [];
+    hw.state.boundaryFiles.clear();
+    list.forEach((p) => hw.state.boundaryFiles.add(p));
+    hw.tryMapMcpPathsToNodes(list);
+    hw.syncBoundaryBar();
+    hw.updateSelectionVisuals();
+    if (options.playWhip) hw.playWhipCrackSound();
+    if (options.toast) hw.showCopyToast?.(options.toast);
   }
   function pushBoundaryLockToPlugin() {
     if (!hw.isPluginHost() || !window.HorsewhipPluginBridge?.setBoundaryAllowlist) return;
@@ -2246,6 +2299,7 @@ ${lines}
   function syncBoundaryBar() {
     const selectedCount = hw.state.selectedNodeIds.size;
     const lockedCount = hw.state.lockedNodeIds.size;
+    const mcpLocked = Boolean(hw.state.mcpBoundaryLocked);
     const locked = hw.isBoundaryLocked();
     hw.rebuildBoundaryFromNodes();
     const files = hw.getBoundaryFilesList();
@@ -2264,7 +2318,7 @@ ${lines}
     if (hw.els.boundaryCount) {
       if (locked) {
         const branchHint = hw.state.lockTargets.length ? [...new Set(hw.state.lockTargets.map((t) => t.branch).filter(Boolean))].map((b) => `\u2387 ${b}`).join(" \xB7 ") || "\u4E3B\u6CF3\u9053" : "";
-        const aimLabel = lockedCount === 1 ? "\u5DF2\u5708\u5B9A 1 \u5904\u53EF\u6539" : `\u5DF2\u5708\u5B9A ${lockedCount} \u5904\u53EF\u6539`;
+        const aimLabel = mcpLocked && !lockedCount ? `\u5DF2\u5708\u5B9A ${files.length} \u6761\u8DEF\u5F84\u53EF\u6539` : lockedCount === 1 ? "\u5DF2\u5708\u5B9A 1 \u5904\u53EF\u6539" : `\u5DF2\u5708\u5B9A ${lockedCount} \u5904\u53EF\u6539`;
         hw.els.boundaryCount.textContent = branchHint ? `${aimLabel} \xB7 ${branchHint}` : aimLabel;
       } else {
         hw.els.boundaryCount.textContent = selectedCount === 1 ? "\u5DF2\u9009 1 \u4E2A\u8282\u70B9 \xB7 \u6325\u97AD\u5708\u5B9A" : `\u5DF2\u9009 ${selectedCount} \u4E2A\u8282\u70B9 \xB7 \u6325\u97AD\u5708\u5B9A`;
@@ -2332,10 +2386,11 @@ ${lines}
     hw.syncNodeRippleVisuals();
   }
   function clearNodeSelection() {
-    if (hw.state.selectedNodeIds.size === 0 && hw.state.lockedNodeIds.size === 0) return;
+    if (hw.state.selectedNodeIds.size === 0 && hw.state.lockedNodeIds.size === 0 && !hw.state.mcpBoundaryLocked) return;
     hw.state.selectedNodeIds.clear();
     hw.state.lockedNodeIds.clear();
     hw.state.lockTargets = [];
+    hw.state.mcpBoundaryLocked = false;
     hw.state.boundaryFiles.clear();
     hw.state.lastSelectedNodeId = null;
     hw.state.pulseNodeId = null;
@@ -2514,6 +2569,7 @@ git reset --hard ${hash}`;
     const crackTarget = btnEl?.closest?.(".hw-whip-float") || btnEl;
     crackTarget?.classList.add("hw-whip-btn--crack", "hw-whip-float--crack");
     hw.playWhipCrackSound();
+    hw.state.mcpBoundaryLocked = false;
     hw.state.lockedNodeIds.clear();
     nodes.forEach((node) => {
       if (node?.id) hw.state.lockedNodeIds.add(node.id);
@@ -2575,6 +2631,10 @@ git reset --hard ${hash}`;
       const d = d3.select(this).select(".link-core").datum();
       return bundle && d && (d.id === bundle.id || d.to?.id === bundle.id);
     });
+    if (hw.state.mcpBoundaryLocked) {
+      hw.hideWhipFloat();
+      return;
+    }
     const whipNodes = hw.selectedWhipNodes();
     const anchorNode = hw.whipHostNode();
     if (whipNodes.length && anchorNode) {
@@ -2604,6 +2664,8 @@ git reset --hard ${hash}`;
     lockTargetsFromNodes,
     pathsFromNodeIds,
     rebuildBoundaryFromNodes,
+    tryMapMcpPathsToNodes,
+    applyBoundaryFromHost,
     isBoundaryLocked,
     pushBoundaryLockToPlugin,
     pushBoundaryUnlockToPlugin,
@@ -5504,6 +5566,7 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     getBoundaryFiles: hw.getBoundaryFilesList,
     buildBoundaryPrompt: hw.buildBoundaryPrompt,
     clearNodeSelection: hw.clearNodeSelection,
+    applyBoundaryFromHost: hw.applyBoundaryFromHost,
     onHostGuardActive: (active) => hw.onHostGuardActive(active),
     initGuardArmControl: () => hw.initGuardArmControl()
   };

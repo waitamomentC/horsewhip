@@ -3,6 +3,7 @@ import * as path from 'path';
 
 const GIT_META_DIR = path.join('.git', 'horsewhip');
 const ALLOWLIST_NAME = 'allowlist.json';
+const MCP_SIGNAL_NAME = 'mcp-signal.json';
 const COMMIT_BLOCKED_NAME = 'commit-blocked.json';
 
 export type PersistedLockTarget = {
@@ -25,10 +26,60 @@ export type PersistedAllowlist = {
   currentBranch?: string;
   /** 用户点击「激活」后守门才生效（默认不激活） */
   guardActive?: boolean;
+  /** `mcp` = Agent MCP wrote this lock; absent = graph whip / webview */
+  lockSource?: 'mcp' | 'webview';
 };
 
 export function allowlistFilePath(workspaceRoot: string): string {
   return path.join(workspaceRoot, GIT_META_DIR, ALLOWLIST_NAME);
+}
+
+export function mcpSignalFilePath(workspaceRoot: string): string {
+  return path.join(workspaceRoot, GIT_META_DIR, MCP_SIGNAL_NAME);
+}
+
+export type McpSignalType = 'lock' | 'unlock' | 'expand' | 'task_complete' | 'whip_ceremony';
+
+export type McpSignalRecord = {
+  version: 1;
+  at: string;
+  type: McpSignalType;
+  playWhip?: boolean;
+  summary?: string;
+  phase?: 'lock' | 'expand';
+};
+
+export async function writeMcpSignal(
+  workspaceRoot: string,
+  payload: Omit<McpSignalRecord, 'version' | 'at'>,
+): Promise<void> {
+  const file = mcpSignalFilePath(workspaceRoot);
+  await fs.promises.mkdir(path.dirname(file), { recursive: true });
+  const body: McpSignalRecord = {
+    version: 1,
+    at: new Date().toISOString(),
+    ...payload,
+  };
+  await fs.promises.writeFile(file, `${JSON.stringify(body, null, 2)}\n`, 'utf8');
+}
+
+export async function readMcpSignal(workspaceRoot: string): Promise<McpSignalRecord | null> {
+  try {
+    const raw = await fs.promises.readFile(mcpSignalFilePath(workspaceRoot), 'utf8');
+    const data = JSON.parse(raw) as McpSignalRecord;
+    if (data.version !== 1 || !data.type) return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
+export async function clearMcpSignal(workspaceRoot: string): Promise<void> {
+  try {
+    await fs.promises.unlink(mcpSignalFilePath(workspaceRoot));
+  } catch {
+    /* absent */
+  }
 }
 
 export function hooksDirPath(workspaceRoot: string): string {
@@ -46,6 +97,7 @@ export async function persistAllowlistToDisk(
   targets: PersistedLockTarget[] = [],
   currentBranch = '',
   guardActive = false,
+  lockSource?: 'mcp' | 'webview',
 ): Promise<void> {
   const file = allowlistFilePath(workspaceRoot);
   const dir = path.dirname(file);
@@ -60,6 +112,7 @@ export async function persistAllowlistToDisk(
     targets: isLocked && targets.length ? targets : undefined,
     currentBranch: isLocked && currentBranch ? currentBranch : undefined,
     guardActive: guardActive ? true : undefined,
+    lockSource: isLocked && lockSource ? lockSource : undefined,
   };
   await fs.promises.writeFile(file, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
 }

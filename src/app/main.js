@@ -68,6 +68,7 @@ window.HorsewhipApp = {
   getBoundaryFiles: hw.getBoundaryFilesList,
   buildBoundaryPrompt: hw.buildBoundaryPrompt,
   clearNodeSelection: hw.clearNodeSelection,
+  applyBoundaryFromHost: hw.applyBoundaryFromHost,
   onHostGuardActive: (active) => hw.onHostGuardActive(active),
   initGuardArmControl: () => hw.initGuardArmControl(),
 };

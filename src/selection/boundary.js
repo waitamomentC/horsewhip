@@ -174,13 +174,66 @@ function pathsFromNodeIds(nodeIds) {
 }
 
 function rebuildBoundaryFromNodes() {
+  if (hw.state.mcpBoundaryLocked) return;
   hw.state.boundaryFiles.clear();
   const sourceIds = hw.state.lockedNodeIds.size ? hw.state.lockedNodeIds : hw.state.selectedNodeIds;
   pathsFromNodeIds(sourceIds).forEach((p) => hw.state.boundaryFiles.add(p));
 }
 
 function isBoundaryLocked() {
-  return hw.state.lockedNodeIds.size > 0;
+  return hw.state.lockedNodeIds.size > 0 || Boolean(hw.state.mcpBoundaryLocked);
+}
+
+function tryMapMcpPathsToNodes(paths) {
+  if (!hw.state.parsed || !paths?.length) return;
+  hw.refreshNodeIndex?.();
+  const want = new Set(paths.filter((p) => p && !hw.isFolderBoundaryPath(p)));
+  if (!want.size) return;
+  const nodes = Object.values(hw.state.nodeIndex || {});
+  want.forEach((filePath) => {
+    const node = nodes.find((n) => {
+      if (!n?.id || hw.state.lockedNodeIds.has(n.id)) return false;
+      const primary = n.filePath || n.files?.[0];
+      if (primary === filePath) return true;
+      return Array.isArray(n.files) && n.files.includes(filePath);
+    });
+    if (node?.id) hw.state.lockedNodeIds.add(node.id);
+  });
+  if (hw.state.lockedNodeIds.size) {
+    hw.state.lockTargets = hw.lockTargetsFromNodes(
+      [...hw.state.lockedNodeIds].map((id) => hw.state.nodeIndex[id]).filter(Boolean),
+    );
+  }
+}
+
+function applyBoundaryFromHost(files, locked, options = {}) {
+  const list = Array.isArray(files) ? files.filter(Boolean) : [];
+  if (options.ceremonyOnly) {
+    if (options.playWhip) hw.playWhipCrackSound();
+    if (options.toast) hw.showCopyToast?.(options.toast);
+    return;
+  }
+  hw.state.selectedNodeIds.clear();
+  if (!locked || !list.length) {
+    hw.state.mcpBoundaryLocked = false;
+    hw.state.lockedNodeIds.clear();
+    hw.state.lockTargets = [];
+    hw.state.boundaryFiles.clear();
+    hw.syncBoundaryBar();
+    hw.updateSelectionVisuals();
+    if (options.playWhip) hw.playWhipCrackSound();
+    return;
+  }
+  hw.state.mcpBoundaryLocked = true;
+  hw.state.lockedNodeIds.clear();
+  hw.state.lockTargets = [];
+  hw.state.boundaryFiles.clear();
+  list.forEach((p) => hw.state.boundaryFiles.add(p));
+  hw.tryMapMcpPathsToNodes(list);
+  hw.syncBoundaryBar();
+  hw.updateSelectionVisuals();
+  if (options.playWhip) hw.playWhipCrackSound();
+  if (options.toast) hw.showCopyToast?.(options.toast);
 }
 
 function pushBoundaryLockToPlugin() {
@@ -207,6 +260,7 @@ function pushBoundaryToPlugin() {
 function syncBoundaryBar() {
   const selectedCount = hw.state.selectedNodeIds.size;
   const lockedCount = hw.state.lockedNodeIds.size;
+  const mcpLocked = Boolean(hw.state.mcpBoundaryLocked);
   const locked = hw.isBoundaryLocked();
   hw.rebuildBoundaryFromNodes();
   const files = hw.getBoundaryFilesList();
@@ -231,8 +285,9 @@ function syncBoundaryBar() {
             .map((b) => `⎇ ${b}`)
             .join(' · ') || '主泳道'
         : '';
-      const aimLabel =
-        lockedCount === 1
+      const aimLabel = mcpLocked && !lockedCount
+        ? `已圈定 ${files.length} 条路径可改`
+        : lockedCount === 1
           ? '已圈定 1 处可改'
           : `已圈定 ${lockedCount} 处可改`;
       hw.els.boundaryCount.textContent = branchHint ? `${aimLabel} · ${branchHint}` : aimLabel;
@@ -317,10 +372,15 @@ function clearSelectionPreview() {
 }
 
 function clearNodeSelection() {
-  if (hw.state.selectedNodeIds.size === 0 && hw.state.lockedNodeIds.size === 0) return;
+  if (
+    hw.state.selectedNodeIds.size === 0
+    && hw.state.lockedNodeIds.size === 0
+    && !hw.state.mcpBoundaryLocked
+  ) return;
   hw.state.selectedNodeIds.clear();
   hw.state.lockedNodeIds.clear();
   hw.state.lockTargets = [];
+  hw.state.mcpBoundaryLocked = false;
   hw.state.boundaryFiles.clear();
   hw.state.lastSelectedNodeId = null;
   hw.state.pulseNodeId = null;
@@ -523,6 +583,7 @@ function lockBoundaryFromSelection(nodes, btnEl) {
   crackTarget?.classList.add('hw-whip-btn--crack', 'hw-whip-float--crack');
   hw.playWhipCrackSound();
 
+  hw.state.mcpBoundaryLocked = false;
   hw.state.lockedNodeIds.clear();
   nodes.forEach((node) => {
     if (node?.id) hw.state.lockedNodeIds.add(node.id);
@@ -616,6 +677,10 @@ function updateSelectionVisuals() {
     return bundle && d && (d.id === bundle.id || d.to?.id === bundle.id);
   });
 
+  if (hw.state.mcpBoundaryLocked) {
+    hw.hideWhipFloat();
+    return;
+  }
   const whipNodes = hw.selectedWhipNodes();
   const anchorNode = hw.whipHostNode();
   if (whipNodes.length && anchorNode) {
@@ -646,6 +711,8 @@ Object.assign(hw, {
   lockTargetsFromNodes,
   pathsFromNodeIds,
   rebuildBoundaryFromNodes,
+  tryMapMcpPathsToNodes,
+  applyBoundaryFromHost,
   isBoundaryLocked,
   pushBoundaryLockToPlugin,
   pushBoundaryUnlockToPlugin,

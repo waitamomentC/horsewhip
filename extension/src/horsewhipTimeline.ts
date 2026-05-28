@@ -32,7 +32,10 @@ import { checkWorkspace, getWorkspaceFolderName, getWorkspaceRoot } from './work
 import { buildGateHtml, buildTimelineHtml } from './webviewHtml';
 import { watchGitRepository } from './gitWatch';
 import {
+  getBoundaryAllowlist,
+  getEffectiveBoundaryLocked,
   isGuardActive,
+  reloadBoundaryFromDisk,
   setBoundaryAllowlist,
   setBoundaryAllowlistWorkspaceRoot,
   setGuardActive,
@@ -50,6 +53,7 @@ import {
 import { isHorsewhipPreCommitHookInstalled, installHorsewhipPreCommitHook } from './boundaryGitHook';
 import { insertTextIntoChat } from './chatInsert';
 import { detectDevStartCommand } from './previewDev';
+import { readAllowlistRecord } from './boundaryPersist';
 import { gitBranchDisplay } from './gitRunner';
 
 type WebviewInbound =
@@ -139,6 +143,25 @@ export class HorsewhipTimeline {
     });
   }
 
+  postBoundarySync(payload: {
+    files: string[];
+    locked: boolean;
+    playWhip?: boolean;
+    toast?: string;
+    ceremony?: 'task_complete';
+    ceremonyOnly?: boolean;
+  }): void {
+    this.webview.postMessage({
+      type: 'syncBoundaryFromHost',
+      files: payload.files,
+      locked: payload.locked,
+      playWhip: Boolean(payload.playWhip),
+      toast: payload.toast,
+      ceremony: payload.ceremony,
+      ceremonyOnly: Boolean(payload.ceremonyOnly),
+    });
+  }
+
   dispose(): void {
     setBoundaryAllowlistWorkspaceRoot(undefined);
     setGuardWebviewNotifier(undefined);
@@ -206,6 +229,16 @@ export class HorsewhipTimeline {
 
     this.workspaceRoot = root;
     setBoundaryAllowlistWorkspaceRoot(this.workspaceRoot);
+    void reloadBoundaryFromDisk(root).then(async () => {
+      if (this.workspaceRoot !== root) return;
+      const locked = await getEffectiveBoundaryLocked(root);
+      if (!locked) return;
+      const rec = await readAllowlistRecord(root);
+      if (rec?.lockSource !== 'mcp') return;
+      const files = getBoundaryAllowlist();
+      this.postBoundarySync({ files, locked: true, playWhip: false });
+      await syncBoundaryLockFromWebview(root, files, true);
+    });
     this.projectName = sanitizeRepoName(state.folderName);
 
     if (needNewHtml) {

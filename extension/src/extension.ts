@@ -5,6 +5,7 @@ import { syncHorsewhipBoundaryNotes } from './boundaryNotes';
 import { setBoundaryAllowlistWorkspaceRoot, setGuardActive } from './boundaryAllowlist';
 import { refreshEditorsForBoundary } from './boundaryEditGuard';
 import { registerBoundaryGuard } from './boundaryGuardHost';
+import { registerBoundaryMcpBridge } from './boundaryMcpBridge';
 import {
   installHorsewhipPreCommitHook,
   isHorsewhipPreCommitHookInstalled,
@@ -42,6 +43,7 @@ async function bootstrapGuardForWorkspace(
 
 export function activate(context: vscode.ExtensionContext): void {
   registerBoundaryGuard(context);
+  registerBoundaryMcpBridge(context);
 
   for (const root of gitWorkspaceRoots()) {
     void bootstrapGuardForWorkspace(context, root);
