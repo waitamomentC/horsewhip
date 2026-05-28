@@ -1,31 +1,41 @@
 # Horsewhip Agent 层
 
-面向 Cursor / Claude Code 等 Agent 的 **Skills + MCP**，与 VS Code/Cursor 插件（泳道可视化 + 守门）配合成完整版马鞭。
+**Skills + MCP**，配合 [Horsewhip 扩展](../extension/README.md)（泳道 + 两重鞭守门）。
 
-| 目录 | 内容 | 状态 |
-|------|------|------|
-| [`skills/horsewhip/`](./skills/horsewhip/) | Agent Skill：工作流、挥鞭仪式、禁止项 | 可用 |
-| [`mcp/`](./mcp/) | MCP Server：lock / unlock / expand / whip / task_complete | Phase 4A |
+| 目录 | 内容 |
+|------|------|
+| [`skills/horsewhip/`](./skills/horsewhip/) | Agent Skill（英文工作流） |
+| [`mcp/`](./mcp/) | MCP Server（7 个工具） |
 
-## 安装 Skill（Cursor）
+## 快速安装（推荐）
 
-将本目录下的 skill 链到项目或用户 skills 目录，例如：
+在 horsewhip 仓库根目录：
 
 ```bash
-# 项目内（推荐，随仓库分发）
-mkdir -p .cursor/skills
-ln -sf ../../agent/skills/horsewhip .cursor/skills/horsewhip
+npm run setup:agent -- --project /path/to/your-git-app
 ```
 
-或复制 `agent/skills/horsewhip/` 到 `~/.cursor/skills/horsewhip`。
+或在业务项目里：
 
-## 配置 MCP
+```bash
+node /path/to/horsewhip/scripts/setup-cursor-agent.mjs --project .
+```
 
-见 [`mcp/README.md`](./mcp/README.md)（含 `mcpServers` 配置示例）。
+然后：安装 **Horsewhip** 插件 → Cursor **Reload Window** → MCP 列表确认 `horsewhip` 已启用。
 
-## 与插件的关系
+选项：`--copy-skill`（Windows）· `--rebuild` · `--use-npx`（npm 已发布后）· `--global-mcp`
 
-- **仅 Agent 层**：可读写 `.git/horsewhip/allowlist.json`，无泳道 UI。
-- **完整版**：安装 [Horsewhip 扩展](../extension/README.md) 后，MCP `lock_paths` 须在面板中可见锁定路径，并播放鞭声（lock / task_complete 各一次）。
+详见根目录 [README.md § 快速安装](../README.md#快速安装完整版--cursor)。
 
-守门与 allowlist 格式见 [docs/boundary-guard.md](../docs/boundary-guard.md)。
+## 手动
+
+见 [mcp/README.md](./mcp/README.md) 与根 README [Agent 手动安装](../README.md#agent-手动安装)。
+
+## 与插件
+
+| 组合 | 面板 / 鞭声 | 守门 |
+|------|-------------|------|
+| 仅 MCP + Skill | 无 | allowlist + hook |
+| 完整版 + 插件 | 有 | 同上 + 写盘还原 |
+
+allowlist 格式：[docs/boundary-guard.md](../docs/boundary-guard.md)

@@ -41,6 +41,81 @@
 
 ---
 
+## 快速安装（完整版 · Cursor）
+
+**前提：** 业务项目已是 Git 仓库；本机已装 **Node 18+**。
+
+| # | 做什么 | 耗时 |
+|:-:|--------|------|
+| 1 | 扩展市场安装 **Horsewhip** 插件 → 重载 | ~1 分钟 |
+| 2 | 克隆 horsewhip（或已有克隆） | 一次 |
+| 3 | 跑 **一键脚本**（见下） | ~1 分钟 |
+| 4 | Cursor **Reload Window** → 设置里确认 MCP `horsewhip` 已启用 | 一次 |
+
+### 方式 A · 一键脚本（推荐）
+
+在 **horsewhip 仓库根目录**执行（把 `/path/to/your-app` 换成业务项目路径）：
+
+```bash
+git clone https://github.com/waitamomentC/horsewhip.git
+cd horsewhip
+npm run setup:agent -- --project /path/to/your-app
+```
+
+或在 **业务项目根目录**执行：
+
+```bash
+node /path/to/horsewhip/scripts/setup-cursor-agent.mjs --project .
+```
+
+脚本会自动：
+
+- `npm install` + `build` → `agent/mcp/dist/index.js`
+- 写入业务项目 `.cursor/mcp.json`（合并已有配置）
+- 链接 `agent/skills/horsewhip` → `.cursor/skills/horsewhip`
+
+Windows 若链接失败，加 `--copy-skill`：
+
+```bash
+npm run setup:agent -- --project C:\path\to\your-app --copy-skill
+```
+
+### 方式 B · npx（npm 发布后）
+
+发布 `@horsewhip/mcp-server` 后，业务项目 `.cursor/mcp.json` 可写成：
+
+```json
+{
+  "mcpServers": {
+    "horsewhip": {
+      "command": "npx",
+      "args": ["-y", "@horsewhip/mcp-server"],
+      "env": { "HORSEWHIP_WORKSPACE": "${workspaceFolder}" }
+    }
+  }
+}
+```
+
+仍须自行挂上 Skill（或再跑方式 A 只链 skill）。一键脚本加 `--use-npx` 可生成上述配置。
+
+维护者发布 MCP：`cd agent/mcp && npm publish --access public`（需 npm 账号）。
+
+### 方式 C · 全手动
+
+见 [Agent 完整流程 → 手动安装](#agent-手动安装)。
+
+### 装完自检
+
+| 检查 | 预期 |
+|------|------|
+| 业务项目有 `.cursor/mcp.json` | 含 `horsewhip` |
+| 业务项目有 `.cursor/skills/horsewhip` | 链到或复制了 SKILL.md |
+| Cursor → MCP | `horsewhip` 绿点 / 已连接 |
+| 侧栏 Horsewhip | 泳道能打开 |
+| Chat 试一句 | 「按 horsewhip 先 lock `某文件` 再改」→ 应调 MCP 工具 |
+
+---
+
 ## Quick Start（手动 · 3 步）
 
 | # | 操作 |
@@ -56,29 +131,16 @@
 
 ## Agent 完整流程（Cursor）
 
-### 一次性准备
+安装请用上一节 [快速安装](#快速安装完整版--cursor)。下面为协作原理与手动备选。
+
+### Agent 手动安装
 
 | # | 操作 |
 |:-:|------|
-| 1 | 安装 [Horsewhip 插件](#install-extension)，打开业务项目 |
-| 2 | 构建 MCP：`cd agent/mcp && npm install && npm run build` |
-| 3 | Cursor **MCP** 配置（路径改成你的克隆位置）： |
-
-```json
-{
-  "mcpServers": {
-    "horsewhip": {
-      "command": "node",
-      "args": ["/ABS/PATH/horsewhip/agent/mcp/dist/index.js"],
-      "env": { "HORSEWHIP_WORKSPACE": "${workspaceFolder}" }
-    }
-  }
-}
-```
-
-| # | 操作 |
-|:-:|------|
-| 4 | 挂上 Skill：`ln -sf ../../agent/skills/horsewhip .cursor/skills/horsewhip`（在项目根执行，路径按仓库调整） |
+| 1 | [安装插件](#install-extension) |
+| 2 | `cd agent/mcp && npm install && npm run build` |
+| 3 | 业务项目 `.cursor/mcp.json`：`node` + `…/agent/mcp/dist/index.js`，`HORSEWHIP_WORKSPACE`: `${workspaceFolder}` |
+| 4 | `ln -sf …/agent/skills/horsewhip .cursor/skills/horsewhip` |
 | 5 | Reload Window |
 
 说明：[agent/README.md](./agent/README.md) · [agent/mcp/README.md](./agent/mcp/README.md)
@@ -203,24 +265,14 @@ Chat 可加一句：「按 horsewhip 流程，先 lock 再改。」
 | `horsewhip_unlock` | 清空圈定 |
 | `horsewhip_suggest_scope` | 路径建议（占位，4B） |
 
-### 为什么 MCP 要本地装？能「拉下来」或让 AI 自己装吗？
+### 为什么 MCP 和插件不一样？
 
-| 问题 | 简短回答 |
-|------|----------|
-| 不能像插件一样一键安装？ | **暂时不能**。插件走 VS Code 市场；MCP 走 Cursor 的 `mcpServers` 配置，需本机有 `node` 和 `dist/index.js` 路径。 |
-| 能从网上直接拉吗？ | 代码在仓库 [`agent/mcp/`](./agent/mcp/)。**尚未**发布成 `npx horsewhip-mcp` 一键包（后续可做）。现在要：`git clone` → `npm run build` → 配 MCP。 |
-| Skill 挂上就够了？ | **不够**。Skill 只教 Agent **怎么用工具**；工具由 **MCP 进程**提供。没配 MCP，Agent 调不到 `horsewhip_lock_paths`。 |
-| 让 AI 自己 `npm install` 行吗？ | Agent **可以**在你机器上跑命令建 `dist/`，但 **不能代替你在 Cursor 里批准 MCP 配置**。stdio MCP 必须写进设置 / `mcp.json`，属于安全边界。 |
-| 为什么要自建、不和插件打成一个包？ | 当前是 **4A-2**：独立进程写 `.git/horsewhip/`，插件 **监听同一文件** 做 UI 与守门。进程分离 = Agent 无面板也能圈地；与扩展同进程是后续选项。 |
-
-**你现在要做的事（一次性）：**
-
-1. 克隆 horsewhip → `npm run build`（在 `agent/mcp`）
-2. Cursor 填 `mcpServers.horsewhip`（见上 JSON）
-3. 项目里链 `.cursor/skills/horsewhip`
-4. Reload Window
-
-**以后可能：** `npx @horsewhip/mcp`、插件内置 MCP、Cursor MCP 目录一键添加 — 见 [agent/mcp/README.md](./agent/mcp/README.md)。
+| 问题 | 回答 |
+|------|------|
+| 插件能市场一键，MCP 呢？ | 用 [方式 A 脚本](#方式-a--一键脚本推荐) 或 [方式 B npx](#方式-b--npxnpm-发布后)；Cursor 仍要在 MCP 列表里**启用**一次。 |
+| 只挂 Skill 行吗？ | **不行**。Skill 教流程；工具在 MCP 进程里。 |
+| AI 能代装吗？ | 可让 Agent 跑 `npm run setup:agent`；**不能**替你在 Cursor 里批准 MCP（安全策略）。 |
+| 为何不和插件打成一个包？ | MCP 写盘、插件监听 + UI；分离后无面板也能圈地。插件内置 MCP 在规划中。 |
 
 ---
 
@@ -321,6 +373,7 @@ git clone https://github.com/waitamomentC/horsewhip.git
 cd horsewhip && npm install
 npm run build:extension   # web → extension/media → tsc
 npm run build:mcp         # agent/mcp → dist/
+npm run setup:agent -- --project /path/to/your-app   # MCP + skill + .cursor/mcp.json
 ```
 
 改 `src/` 或 `style.css` 后重跑 `build:extension`，**F5** 调试 `extension/`。
