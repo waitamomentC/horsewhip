@@ -451,7 +451,7 @@ export function buildTimelineHtml(
     .remote-wizard__panel[hidden] { display: none !important; }
   </style>
 </head>
-<body class="hw-plugin hw-per-lane-v">
+<body class="hw-plugin hw-per-lane-v hw-guard-active">
   <div class="plugin-bar">
     <strong>Horsewhip</strong>
     <span class="plugin-bar__tagline">AI 边界</span>
@@ -466,11 +466,11 @@ export function buildTimelineHtml(
     </span>
     <span class="plugin-bar__sep">·</span>
     <span class="plugin-guard" id="plugin-guard">
-      <span class="plugin-guard__arm-wrap plugin-guard__arm-wrap--off" id="guard-arm-wrap">
-        <span class="plugin-guard__lamp" id="guard-arm-lamp" role="img" aria-label="守门未激活"></span>
-        <button type="button" class="plugin-guard__arm" id="btn-guard-arm" aria-pressed="false">激活</button>
+      <span class="plugin-guard__arm-wrap plugin-guard__arm-wrap--on" id="guard-arm-wrap">
+        <span class="plugin-guard__lamp" id="guard-arm-lamp" role="img" aria-label="守门已激活"></span>
+        <button type="button" class="plugin-guard__arm" id="btn-guard-arm" aria-pressed="true">失效</button>
       </span>
-      <span class="plugin-guard__status plugin-guard__status--idle" id="plugin-guard-status">守门 · 未激活</span>
+      <span class="plugin-guard__status plugin-guard__status--idle" id="plugin-guard-status">守门 · 已激活 · 可自由改码</span>
       <button type="button" class="plugin-bar__btn" id="btn-guard-check" title="对比 git 改动与泳道边界">检查越界</button>
       <button type="button" class="plugin-bar__btn" id="btn-guard-correct" hidden title="把越界纠正文案插入 Chat">插入纠正</button>
       <button type="button" class="plugin-bar__btn" id="btn-guard-revert" hidden title="还原越界文件到 HEAD">还原越界</button>
@@ -489,7 +489,7 @@ export function buildTimelineHtml(
       <span class="hw-boundary__files" id="hw-boundary-files"></span>
     </div>
     <div class="hw-boundary__actions">
-      <button type="button" class="plugin-bar__btn" id="btn-boundary-clear">清空</button>
+      <button type="button" class="plugin-bar__btn" id="btn-boundary-clear">解锁</button>
       <button type="button" class="plugin-bar__btn hw-whip-btn" id="btn-boundary-copy" title="挥鞭上锁" aria-label="挥鞭上锁"></button>
       <button type="button" class="plugin-bar__btn plugin-bar__btn--primary" id="btn-boundary-chat">插入 Chat</button>
     </div>

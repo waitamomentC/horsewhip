@@ -11,7 +11,10 @@ function updatePluginBar(laneCount) {
     el.textContent = '读取 git log…';
     return;
   }
-  const boundaryN = hw.BOUNDARY_BAR_ENABLED ? hw.state.selectedNodeIds.size : 0;
+  const lockedN = hw.state.lockedNodeIds.size;
+  const boundaryN = hw.boundaryBarActive()
+    ? (lockedN || hw.state.selectedNodeIds.size)
+    : 0;
   const ws = hw.state.workspaceFiles?.length ?? 0;
   if (laneCount > 0) {
     const lanes = hw.state.catalog?.lanes || [];
@@ -21,7 +24,9 @@ function updatePluginBar(laneCount) {
       ? `${files} 个文件 · ${dirs} 个目录`
       : `${laneCount} 行`;
     const exp = hw.PER_LANE_VERSION ? ' · 每夹V' : '';
-    el.textContent = boundaryN > 0 ? `${base} · 边界 ${boundaryN}${exp}` : `${base}${exp}`;
+    el.textContent = boundaryN > 0
+      ? `${base} · ${lockedN ? `已圈定 ${lockedN}` : `已选 ${boundaryN}`}${exp}`
+      : `${base}${exp}`;
   } else {
     el.textContent = ws > 0 ? '目录已同步，等待 git 记录' : '同步工作区目录…';
   }

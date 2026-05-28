@@ -33,8 +33,12 @@ const PER_LANE_VERSION = true;
 const BRANCH_RAIL_ENABLED = false;
 /** Multi-select branch fusion UI */
 const BRANCH_FUSION_ENABLED = false;
-/** Top "本次边界" bar */
+/** Top "本次边界" bar — always on in VS Code/Cursor plugin (unlock / re-whip) */
 const BOUNDARY_BAR_ENABLED = false;
+
+function boundaryBarActive() {
+  return BOUNDARY_BAR_ENABLED || hw.isPluginHost?.();
+}
 /** 同一 commit 跨泳道的竖向「总线」（易与 C 列网格混淆，默认关） */
 const SHOW_COMMIT_BUS_LINES = false;
 const LANE_LAYOUT_KEY = 'hw-lane-layout';
@@ -54,7 +58,7 @@ const LANE_VIEW_OVERSCAN = 4;
 
 Object.assign(hw, {
   CONFIG, ROOT_BUCKET, PER_LANE_VERSION,
-  BRANCH_RAIL_ENABLED, BRANCH_FUSION_ENABLED, BOUNDARY_BAR_ENABLED, SHOW_COMMIT_BUS_LINES,
+  BRANCH_RAIL_ENABLED, BRANCH_FUSION_ENABLED, BOUNDARY_BAR_ENABLED, boundaryBarActive, SHOW_COMMIT_BUS_LINES,
   LANE_LAYOUT_KEY, WHIP_SOUND_MUTE_KEY, WHIP_CRACK_AUDIO_DEFAULT,
   LANE_LAYOUT_GROUPED, LANE_LAYOUT_FLAT, LANE_HUES,
   CODE_FILE_RE, CONFIG_FILE_RE, CONFIG_BASENAMES, ICON_SIZE, VERSION_STEP_ICON_SCALE,

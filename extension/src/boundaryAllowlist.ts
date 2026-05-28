@@ -11,7 +11,7 @@ export type { PersistedLockTarget as LockTarget };
 let allowlist: string[] = [];
 let lockTargets: PersistedLockTarget[] = [];
 let boundaryLocked = false;
-let guardActive = false;
+let guardActive = true;
 let workspaceRootForPersist: string | undefined;
 
 export function setBoundaryAllowlistWorkspaceRoot(root: string | undefined): void {
@@ -24,13 +24,13 @@ export function setBoundaryAllowlistWorkspaceRoot(root: string | undefined): voi
   }
   void readAllowlistRecord(root).then((rec) => {
     if (workspaceRootForPersist !== root) return;
-    // 不以磁盘为准自动「上锁」——必须本次会话在泳道挥鞭圈定（避免 UI 未圈定却放行）
+    // 不以磁盘为准自动「上锁」——必须本次会话在泳道点选节点（避免 UI 未圈定却放行）
     boundaryLocked = false;
-    guardActive = false;
+    guardActive = true;
     allowlist = [];
     lockTargets = [];
     if (rec?.locked || rec?.guardActive) {
-      void persistAllowlistToDisk(root, [], false, [], '', false);
+      void persistAllowlistToDisk(root, [], false, [], '', true);
     }
   });
 }
@@ -135,7 +135,6 @@ export async function clearBoundaryAllowlist(): Promise<void> {
   lockTargets = [];
   boundaryLocked = false;
   if (workspaceRootForPersist) {
-    guardActive = false;
-    await persistAllowlistToDisk(workspaceRootForPersist, [], false, [], '', false);
+    await persistAllowlistToDisk(workspaceRootForPersist, [], false, [], '', guardActive);
   }
 }

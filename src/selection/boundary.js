@@ -183,12 +183,25 @@ function isBoundaryLocked() {
   return hw.state.lockedNodeIds.size > 0;
 }
 
-function pushBoundaryToPlugin() {
+function pushBoundaryLockToPlugin() {
   if (!hw.isPluginHost() || !window.HorsewhipPluginBridge?.setBoundaryAllowlist) return;
-  const locked = hw.isBoundaryLocked();
-  const files = locked ? hw.getBoundaryFilesList() : [];
-  const targets = locked ? hw.state.lockTargets : [];
-  window.HorsewhipPluginBridge.setBoundaryAllowlist(files, locked, targets);
+  if (!hw.isBoundaryLocked()) return;
+  hw.rebuildBoundaryFromNodes();
+  window.HorsewhipPluginBridge.setBoundaryAllowlist(
+    hw.getBoundaryFilesList(),
+    true,
+    hw.state.lockTargets,
+  );
+}
+
+function pushBoundaryUnlockToPlugin() {
+  if (!hw.isPluginHost() || !window.HorsewhipPluginBridge?.setBoundaryAllowlist) return;
+  window.HorsewhipPluginBridge.setBoundaryAllowlist([], false, []);
+}
+
+/** 仅在上锁时推送；预览点选不得发送 locked=false（会误清已有锁）。 */
+function pushBoundaryToPlugin() {
+  if (hw.isBoundaryLocked()) hw.pushBoundaryLockToPlugin();
 }
 
 function syncBoundaryBar() {
@@ -199,9 +212,7 @@ function syncBoundaryBar() {
   const files = hw.getBoundaryFilesList();
   const showBar = selectedCount > 0 || locked;
 
-  hw.pushBoundaryToPlugin();
-
-  if (!hw.BOUNDARY_BAR_ENABLED) {
+  if (!hw.boundaryBarActive()) {
     if (hw.isPluginHost() && hw.state.catalog?.lanes?.length) {
       hw.updatePluginBar(hw.state.catalog.lanes.length);
     }
@@ -239,7 +250,18 @@ function syncBoundaryBar() {
   if (hw.els.boundaryPreview) {
     hw.els.boundaryPreview.textContent = '';
   }
-  if (hw.els.btnBoundaryCopy) hw.els.btnBoundaryCopy.disabled = !selectedCount;
+  if (hw.els.btnBoundaryCopy) {
+    hw.els.btnBoundaryCopy.disabled = !selectedCount;
+    hw.els.btnBoundaryCopy.title = locked
+      ? '重新挥鞭圈定（替换当前锁定范围）'
+      : '挥鞭圈定（仅此范围可改）';
+  }
+  if (hw.els.btnBoundaryClear) {
+    hw.els.btnBoundaryClear.textContent = locked ? '解锁' : '清空';
+    hw.els.btnBoundaryClear.title = locked
+      ? '解除圈定，恢复自由改码'
+      : '清空点选';
+  }
   if (hw.els.btnBoundaryChat) {
     hw.els.btnBoundaryChat.disabled = !files.length;
     hw.els.btnBoundaryChat.hidden = hw.isPluginHost();
@@ -284,6 +306,16 @@ function syncFileRailBoundaryHighlight() {
   });
 }
 
+function clearSelectionPreview() {
+  if (hw.state.selectedNodeIds.size === 0) return;
+  hw.state.selectedNodeIds.clear();
+  hw.state.lastSelectedNodeId = null;
+  hw.state.pulseNodeId = null;
+  hw.syncBoundaryBar();
+  hw.updateSelectionVisuals();
+  hw.syncNodeRippleVisuals();
+}
+
 function clearNodeSelection() {
   if (hw.state.selectedNodeIds.size === 0 && hw.state.lockedNodeIds.size === 0) return;
   hw.state.selectedNodeIds.clear();
@@ -292,6 +324,7 @@ function clearNodeSelection() {
   hw.state.boundaryFiles.clear();
   hw.state.lastSelectedNodeId = null;
   hw.state.pulseNodeId = null;
+  hw.pushBoundaryUnlockToPlugin();
   hw.syncBoundaryBar();
   hw.updateSelectionVisuals();
   hw.syncNodeRippleVisuals();
@@ -497,7 +530,7 @@ function lockBoundaryFromSelection(nodes, btnEl) {
   hw.state.lockTargets = hw.lockTargetsFromNodes(nodes);
 
   hw.rebuildBoundaryFromNodes();
-  hw.pushBoundaryToPlugin();
+  hw.pushBoundaryLockToPlugin();
   hw.syncBoundaryBar();
   hw.updateSelectionVisuals();
 
@@ -614,7 +647,10 @@ Object.assign(hw, {
   pathsFromNodeIds,
   rebuildBoundaryFromNodes,
   isBoundaryLocked,
+  pushBoundaryLockToPlugin,
+  pushBoundaryUnlockToPlugin,
   pushBoundaryToPlugin,
+  clearSelectionPreview,
   lockBoundaryFromSelection,
   syncBoundaryBar,
   syncNodeLockRings,

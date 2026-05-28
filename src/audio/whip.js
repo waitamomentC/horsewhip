@@ -295,6 +295,13 @@ function showWhipFloat(anchorNode, nodesForCopy) {
   const el = hw.ensureWhipFloatEl();
   whipFloatNodesForCopy = nodesForCopy;
   el.hidden = false;
+  const btn = el.querySelector('.hw-whip-float__btn');
+  if (btn) {
+    const relock = hw.isBoundaryLocked?.();
+    const title = relock ? '重新挥鞭圈定（替换当前锁定）' : '挥鞭圈定（仅此范围可改）';
+    btn.title = title;
+    btn.setAttribute('aria-label', title);
+  }
   hw.bindWhipFloatReposition();
   hw.positionWhipFloat(el, anchorNode || hw.whipHostNode?.());
 }

@@ -169,16 +169,6 @@ function main() {
     process.exit(0);
   }
   if (!rec.armed) {
-    if (actualEarly.length > 0) {
-      console.error('');
-      console.error('【horsewhip · commit 已拦截】');
-      console.error('尚未挥鞭圈定跑马范围：工作区存在改动，禁止任何修改与提交。');
-      console.error(`涉及路径：${actualEarly.join(', ')}`);
-      console.error('');
-      console.error('请先在马鞭泳道点选节点并挥鞭圈定；或 git checkout HEAD -- <路径> 还原改动。');
-      console.error('');
-      process.exit(1);
-    }
     clearCommitBlockedMarker();
     process.exit(0);
   }

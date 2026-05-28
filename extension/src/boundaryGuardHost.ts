@@ -121,29 +121,18 @@ export async function evaluateCommitGuard(workspaceRoot: string): Promise<Commit
   updateStatusBar(result);
   pushGuardStatus(result);
 
-  const { blockCommit, blockCommitWithoutBoundary } = guardConfig();
+  const { blockCommit } = guardConfig();
   if (!blockCommit) {
     return { allowed: true, result };
   }
   if (!result.hasBoundary) {
-    if (blockCommitWithoutBoundary) {
-      const dirtyHint =
-        result.actual.length > 0
-          ? `工作区已有 ${result.actual.length} 个路径改动，`
-          : '';
-      return {
-        allowed: false,
-        result,
-        reason: `未挥鞭圈定跑马范围，${dirtyHint}禁止任何修改与提交。请先点选节点并挥鞭圈定；或先还原圈外改动。`,
-      };
-    }
     return { allowed: true, result };
   }
   if (!result.ok) {
     return {
       allowed: false,
       result,
-      reason: `圈外改动 ${result.overreach.length} 个文件，commit 已拦截（仅允许修改已挥鞭圈定的路径）。`,
+      reason: `圈外改动 ${result.overreach.length} 个文件，commit 已拦截（仅允许修改已圈定路径）。`,
     };
   }
 
@@ -208,7 +197,7 @@ async function finishRevertFlow(
       `仍有越界：${overreachPreview(again.result.overreach)}。可再次还原或检查守门。`,
     );
   } else if (!again.result.hasBoundary) {
-    vscode.window.showWarningMessage('尚未在泳道挥鞭上锁，提交仍会被拦截。');
+    vscode.window.showWarningMessage('未选中节点，当前可自由改码。选中节点后将仅圈内可改。');
   }
   return false;
 }
@@ -371,8 +360,8 @@ function updateStatusBar(result: BoundaryGuardResult | null): void {
     return;
   }
   if (!result.hasBoundary) {
-    statusBar.text = '$(circle-slash) 未圈定';
-    statusBar.tooltip = buildNoBoundaryHint();
+    statusBar.text = '$(unlock) 可自由改码';
+    statusBar.tooltip = '未选中节点：AI 可修改仓库内任何文件。选中节点后仅圈内可改。';
     statusBar.backgroundColor = undefined;
     statusBar.command = 'horsewhip.checkBoundary';
     return;

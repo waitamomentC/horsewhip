@@ -96,7 +96,7 @@ ${revertHint}，仅保留圈定范围内的修改。
 }
 
 export function buildNoBoundaryHint(): string {
-  return '未圈定跑马范围：请先点选节点并挥鞭圈定；未圈定的路径禁止修改与提交。';
+  return '未选中节点：当前可自由改码。在泳道点选节点后，仅圈内路径可修改与提交。';
 }
 
 export function buildEditBlockedPrompt(file: string, allowed: string[]): string {

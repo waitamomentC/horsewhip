@@ -32,6 +32,9 @@
   var BRANCH_RAIL_ENABLED = false;
   var BRANCH_FUSION_ENABLED = false;
   var BOUNDARY_BAR_ENABLED = false;
+  function boundaryBarActive() {
+    return BOUNDARY_BAR_ENABLED || hw.isPluginHost?.();
+  }
   var SHOW_COMMIT_BUS_LINES = false;
   var LANE_LAYOUT_KEY = "hw-lane-layout";
   var WHIP_SOUND_MUTE_KEY = "horsewhip:whip-sound-muted";
@@ -53,6 +56,7 @@
     BRANCH_RAIL_ENABLED,
     BRANCH_FUSION_ENABLED,
     BOUNDARY_BAR_ENABLED,
+    boundaryBarActive,
     SHOW_COMMIT_BUS_LINES,
     LANE_LAYOUT_KEY,
     WHIP_SOUND_MUTE_KEY,
@@ -108,8 +112,8 @@
     selectedBranchNames: /* @__PURE__ */ new Set(),
     viewportInteracting: false,
     headSnapshotBeforeLoad: null,
-    /** 插件顶栏「激活」后才启用写盘/commit 守门 */
-    guardActive: false
+    /** 插件顶栏「激活」后才启用写盘/commit 守门（默认激活；未选中节点时可自由改码） */
+    guardActive: true
   };
   var whipAudioContext = null;
   var whipCrackBuffer = null;
@@ -2222,12 +2226,22 @@ ${lines}
   function isBoundaryLocked() {
     return hw.state.lockedNodeIds.size > 0;
   }
-  function pushBoundaryToPlugin() {
+  function pushBoundaryLockToPlugin() {
     if (!hw.isPluginHost() || !window.HorsewhipPluginBridge?.setBoundaryAllowlist) return;
-    const locked = hw.isBoundaryLocked();
-    const files = locked ? hw.getBoundaryFilesList() : [];
-    const targets = locked ? hw.state.lockTargets : [];
-    window.HorsewhipPluginBridge.setBoundaryAllowlist(files, locked, targets);
+    if (!hw.isBoundaryLocked()) return;
+    hw.rebuildBoundaryFromNodes();
+    window.HorsewhipPluginBridge.setBoundaryAllowlist(
+      hw.getBoundaryFilesList(),
+      true,
+      hw.state.lockTargets
+    );
+  }
+  function pushBoundaryUnlockToPlugin() {
+    if (!hw.isPluginHost() || !window.HorsewhipPluginBridge?.setBoundaryAllowlist) return;
+    window.HorsewhipPluginBridge.setBoundaryAllowlist([], false, []);
+  }
+  function pushBoundaryToPlugin() {
+    if (hw.isBoundaryLocked()) hw.pushBoundaryLockToPlugin();
   }
   function syncBoundaryBar() {
     const selectedCount = hw.state.selectedNodeIds.size;
@@ -2236,8 +2250,7 @@ ${lines}
     hw.rebuildBoundaryFromNodes();
     const files = hw.getBoundaryFilesList();
     const showBar = selectedCount > 0 || locked;
-    hw.pushBoundaryToPlugin();
-    if (!hw.BOUNDARY_BAR_ENABLED) {
+    if (!hw.boundaryBarActive()) {
       if (hw.isPluginHost() && hw.state.catalog?.lanes?.length) {
         hw.updatePluginBar(hw.state.catalog.lanes.length);
       }
@@ -2264,7 +2277,14 @@ ${lines}
     if (hw.els.boundaryPreview) {
       hw.els.boundaryPreview.textContent = "";
     }
-    if (hw.els.btnBoundaryCopy) hw.els.btnBoundaryCopy.disabled = !selectedCount;
+    if (hw.els.btnBoundaryCopy) {
+      hw.els.btnBoundaryCopy.disabled = !selectedCount;
+      hw.els.btnBoundaryCopy.title = locked ? "\u91CD\u65B0\u6325\u97AD\u5708\u5B9A\uFF08\u66FF\u6362\u5F53\u524D\u9501\u5B9A\u8303\u56F4\uFF09" : "\u6325\u97AD\u5708\u5B9A\uFF08\u4EC5\u6B64\u8303\u56F4\u53EF\u6539\uFF09";
+    }
+    if (hw.els.btnBoundaryClear) {
+      hw.els.btnBoundaryClear.textContent = locked ? "\u89E3\u9501" : "\u6E05\u7A7A";
+      hw.els.btnBoundaryClear.title = locked ? "\u89E3\u9664\u5708\u5B9A\uFF0C\u6062\u590D\u81EA\u7531\u6539\u7801" : "\u6E05\u7A7A\u70B9\u9009";
+    }
     if (hw.els.btnBoundaryChat) {
       hw.els.btnBoundaryChat.disabled = !files.length;
       hw.els.btnBoundaryChat.hidden = hw.isPluginHost();
@@ -2302,6 +2322,15 @@ ${lines}
       }
     });
   }
+  function clearSelectionPreview() {
+    if (hw.state.selectedNodeIds.size === 0) return;
+    hw.state.selectedNodeIds.clear();
+    hw.state.lastSelectedNodeId = null;
+    hw.state.pulseNodeId = null;
+    hw.syncBoundaryBar();
+    hw.updateSelectionVisuals();
+    hw.syncNodeRippleVisuals();
+  }
   function clearNodeSelection() {
     if (hw.state.selectedNodeIds.size === 0 && hw.state.lockedNodeIds.size === 0) return;
     hw.state.selectedNodeIds.clear();
@@ -2310,6 +2339,7 @@ ${lines}
     hw.state.boundaryFiles.clear();
     hw.state.lastSelectedNodeId = null;
     hw.state.pulseNodeId = null;
+    hw.pushBoundaryUnlockToPlugin();
     hw.syncBoundaryBar();
     hw.updateSelectionVisuals();
     hw.syncNodeRippleVisuals();
@@ -2490,7 +2520,7 @@ git reset --hard ${hash}`;
     });
     hw.state.lockTargets = hw.lockTargetsFromNodes(nodes);
     hw.rebuildBoundaryFromNodes();
-    hw.pushBoundaryToPlugin();
+    hw.pushBoundaryLockToPlugin();
     hw.syncBoundaryBar();
     hw.updateSelectionVisuals();
     const fileCount = hw.getBoundaryFilesList().length;
@@ -2575,7 +2605,10 @@ git reset --hard ${hash}`;
     pathsFromNodeIds,
     rebuildBoundaryFromNodes,
     isBoundaryLocked,
+    pushBoundaryLockToPlugin,
+    pushBoundaryUnlockToPlugin,
     pushBoundaryToPlugin,
+    clearSelectionPreview,
     lockBoundaryFromSelection,
     syncBoundaryBar,
     syncNodeLockRings,
@@ -4488,7 +4521,9 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
           clearTimeout(hw.nodeClickTimer);
           hw.nodeClickTimer = null;
         }
-        if (hw.state.selectedNodeIds.size > 0) hw.clearNodeSelection();
+        if (hw.isBoundaryLocked() || hw.state.selectedNodeIds.size > 0) {
+          hw.clearNodeSelection();
+        }
         if (hw.state.selectedLink) {
           hw.state.selectedLink = null;
           hw.els.linkPanel.hidden = true;
@@ -4545,7 +4580,8 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
       el.textContent = "\u8BFB\u53D6 git log\u2026";
       return;
     }
-    const boundaryN = hw.BOUNDARY_BAR_ENABLED ? hw.state.selectedNodeIds.size : 0;
+    const lockedN = hw.state.lockedNodeIds.size;
+    const boundaryN = hw.boundaryBarActive() ? lockedN || hw.state.selectedNodeIds.size : 0;
     const ws = hw.state.workspaceFiles?.length ?? 0;
     if (laneCount > 0) {
       const lanes = hw.state.catalog?.lanes || [];
@@ -4553,7 +4589,7 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
       const files = lanes.filter((l) => l.type === "file").length;
       const base = files > 0 ? `${files} \u4E2A\u6587\u4EF6 \xB7 ${dirs} \u4E2A\u76EE\u5F55` : `${laneCount} \u884C`;
       const exp = hw.PER_LANE_VERSION ? " \xB7 \u6BCF\u5939V" : "";
-      el.textContent = boundaryN > 0 ? `${base} \xB7 \u8FB9\u754C ${boundaryN}${exp}` : `${base}${exp}`;
+      el.textContent = boundaryN > 0 ? `${base} \xB7 ${lockedN ? `\u5DF2\u5708\u5B9A ${lockedN}` : `\u5DF2\u9009 ${boundaryN}`}${exp}` : `${base}${exp}`;
     } else {
       el.textContent = ws > 0 ? "\u76EE\u5F55\u5DF2\u540C\u6B65\uFF0C\u7B49\u5F85 git \u8BB0\u5F55" : "\u540C\u6B65\u5DE5\u4F5C\u533A\u76EE\u5F55\u2026";
     }
@@ -4583,7 +4619,7 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     if (!btn) return;
     const on = hw.state.guardActive;
     btn.textContent = on ? "\u5931\u6548" : "\u6FC0\u6D3B";
-    btn.title = on ? "\u5B88\u95E8\u5DF2\u5F00\u542F\uFF1A\u8D8A\u754C\u5199\u76D8\u4F1A\u8FD8\u539F\u3002\u70B9\u51FB\u5173\u95ED\u540E\u53EF\u81EA\u7531\u6539\u7801\u3002" : "\u5B88\u95E8\u672A\u5F00\u542F\uFF1A\u70B9\u51FB\u300C\u6FC0\u6D3B\u300D\u540E\uFF0C\u6325\u97AD\u5708\u5B9A\u624D\u4F1A\u62E6\u6539\u7801\u4E0E commit";
+    btn.title = on ? "\u5B88\u95E8\u5DF2\u5F00\u542F\uFF1A\u9009\u4E2D\u8282\u70B9\u540E\u4EC5\u5708\u5185\u53EF\u6539\uFF1B\u672A\u9009\u4E2D\u65F6\u53EF\u81EA\u7531\u6539\u7801\u3002\u70B9\u51FB\u300C\u5931\u6548\u300D\u5173\u95ED\u5B88\u95E8\u3002" : "\u5B88\u95E8\u5DF2\u5173\u95ED\uFF1A\u5199\u76D8\u4E0E commit \u5747\u4E0D\u62E6\u622A\u3002\u70B9\u51FB\u300C\u6FC0\u6D3B\u300D\u6062\u590D\u5B88\u95E8\u3002";
     btn.setAttribute("aria-pressed", on ? "true" : "false");
     if (wrap) {
       wrap.classList.toggle("plugin-guard__arm-wrap--on", on);
@@ -4614,8 +4650,7 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     if (!btn || btn.dataset.hwBound === "1") return;
     btn.dataset.hwBound = "1";
     if (!document.body.classList.contains("hw-guard-active")) {
-      hw.state.guardActive = false;
-      applyGuardActiveUi();
+      hw.setGuardActive(true);
     }
   }
   function onHostGuardActive(active) {
@@ -4900,6 +4935,13 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     const el = hw.ensureWhipFloatEl();
     whipFloatNodesForCopy = nodesForCopy;
     el.hidden = false;
+    const btn = el.querySelector(".hw-whip-float__btn");
+    if (btn) {
+      const relock = hw.isBoundaryLocked?.();
+      const title = relock ? "\u91CD\u65B0\u6325\u97AD\u5708\u5B9A\uFF08\u66FF\u6362\u5F53\u524D\u9501\u5B9A\uFF09" : "\u6325\u97AD\u5708\u5B9A\uFF08\u4EC5\u6B64\u8303\u56F4\u53EF\u6539\uFF09";
+      btn.title = title;
+      btn.setAttribute("aria-label", title);
+    }
     hw.bindWhipFloatReposition();
     hw.positionWhipFloat(el, anchorNode || hw.whipHostNode?.());
   }
@@ -5187,7 +5229,7 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     hw.syncFuseBar();
   }
   function wireBoundaryBar() {
-    if (!hw.BOUNDARY_BAR_ENABLED) {
+    if (!hw.boundaryBarActive()) {
       if (hw.els.boundaryBar) hw.els.boundaryBar.hidden = true;
       return;
     }

@@ -207,7 +207,7 @@
     statusEl.className = 'plugin-guard__status';
     if (!msg.hasBoundary) {
       statusEl.classList.add('plugin-guard__status--idle');
-      statusEl.textContent = '守门 · 已激活 · 未圈定';
+      statusEl.textContent = '守门 · 已激活 · 可自由改码';
       if (btnCorrect) btnCorrect.hidden = true;
       if (btnRevert) btnRevert.hidden = true;
       return;
@@ -265,7 +265,7 @@
         toggle();
       }
     });
-    syncGuardArmFromHost(false);
+    syncGuardArmFromHost(true);
   }
 
   function wireGuardBar() {

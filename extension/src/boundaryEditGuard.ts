@@ -77,8 +77,7 @@ export async function shouldBlockEdit(
   const allowed = locked ? await getEffectiveAllowlist(workspaceRoot) : [];
 
   if (!locked || !allowed.length) {
-    if (isEditBypassed(rel)) return { block: false, allowed: [] };
-    return { block: true, allowed: [], reason: 'no-pasture' };
+    return { block: false, allowed: [] };
   }
 
   if (isEditBypassed(rel)) return { block: false, allowed };

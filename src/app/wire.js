@@ -34,7 +34,7 @@ function wireFuseBar() {
 }
 
 function wireBoundaryBar() {
-  if (!hw.BOUNDARY_BAR_ENABLED) {
+  if (!hw.boundaryBarActive()) {
     if (hw.els.boundaryBar) hw.els.boundaryBar.hidden = true;
     return;
   }

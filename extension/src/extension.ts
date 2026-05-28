@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { syncHorsewhipBoundaryNotes } from './boundaryNotes';
-import { setBoundaryAllowlistWorkspaceRoot } from './boundaryAllowlist';
+import { setBoundaryAllowlistWorkspaceRoot, setGuardActive } from './boundaryAllowlist';
 import { refreshEditorsForBoundary } from './boundaryEditGuard';
 import { registerBoundaryGuard } from './boundaryGuardHost';
 import {
@@ -24,6 +24,7 @@ async function bootstrapGuardForWorkspace(
   workspaceRoot: string,
 ): Promise<void> {
   setBoundaryAllowlistWorkspaceRoot(workspaceRoot);
+  await setGuardActive(true);
   await syncHorsewhipBoundaryNotes(workspaceRoot);
   const cfg = vscode.workspace.getConfiguration('horsewhip.guard');
   if (cfg.get<boolean>('installHookOnOpen', true)) {

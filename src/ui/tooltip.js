@@ -168,7 +168,9 @@ function initGraphViewportEvents() {
         clearTimeout(hw.nodeClickTimer);
         hw.nodeClickTimer = null;
       }
-      if (hw.state.selectedNodeIds.size > 0) hw.clearNodeSelection();
+      if (hw.isBoundaryLocked() || hw.state.selectedNodeIds.size > 0) {
+        hw.clearNodeSelection();
+      }
       if (hw.state.selectedLink) {
         hw.state.selectedLink = null;
         hw.els.linkPanel.hidden = true;

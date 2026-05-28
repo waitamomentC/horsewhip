@@ -9,8 +9,8 @@ function syncGuardArmButton() {
   const on = hw.state.guardActive;
   btn.textContent = on ? '失效' : '激活';
   btn.title = on
-    ? '守门已开启：越界写盘会还原。点击关闭后可自由改码。'
-    : '守门未开启：点击「激活」后，挥鞭圈定才会拦改码与 commit';
+    ? '守门已开启：选中节点后仅圈内可改；未选中时可自由改码。点击「失效」关闭守门。'
+    : '守门已关闭：写盘与 commit 均不拦截。点击「激活」恢复守门。';
   btn.setAttribute('aria-pressed', on ? 'true' : 'false');
 
   if (wrap) {
@@ -46,8 +46,7 @@ function initGuardArmControl() {
   if (!btn || btn.dataset.hwBound === '1') return;
   btn.dataset.hwBound = '1';
   if (!document.body.classList.contains('hw-guard-active')) {
-    hw.state.guardActive = false;
-    applyGuardActiveUi();
+    hw.setGuardActive(true);
   }
 }
 
