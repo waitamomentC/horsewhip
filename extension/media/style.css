@@ -537,7 +537,15 @@ body:has(.hw-boundary:not([hidden])) .stage {
 }
 
 .graph-viewport--streaming .graph-scroll-layer {
-  opacity: 0.92;
+  opacity: 1;
+}
+
+.graph-viewport--streaming .lane-slice {
+  will-change: opacity;
+}
+
+.link-core {
+  vector-effect: non-scaling-stroke;
 }
 
 /* Pan/scroll: GPU layer + pause ripples so nodes don't stutter */
@@ -914,10 +922,13 @@ body:has(.hw-boundary:not([hidden])) .stage {
   opacity: 0.92;
 }
 
-/* 合并后分支继续实验：保留 C1→主线 汇入弧，弱化表示「历史汇入」 */
+/* 合并后分支继续实验：仅「历史汇入弧」用虚线 */
 .link-merge .link-core--stale {
   stroke-width: 2.25;
   opacity: 0.55;
+}
+
+.link-merge--historical .link-core {
   stroke-dasharray: 6 4;
 }
 
@@ -925,6 +936,10 @@ body:has(.hw-boundary:not([hidden])) .stage {
 .link-merge.link-group--hover .link-core {
   stroke-width: 3.25 !important;
   opacity: 1 !important;
+}
+
+.link-merge--historical.link-group--hover .link-core {
+  stroke-dasharray: 6 4 !important;
 }
 
 .link-bus .link-core--stale,
@@ -967,6 +982,10 @@ body:has(.hw-boundary:not([hidden])) .stage {
 .link-trace .link-core {
   stroke-width: 1.15;
   opacity: 0.42;
+}
+
+.node-group--step .node-icon {
+  opacity: 0.72;
 }
 
 .node-icon { pointer-events: none; }

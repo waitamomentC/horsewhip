@@ -37,6 +37,30 @@ function getWhipCrackAudioUrl() {
   return hw.WHIP_CRACK_AUDIO_DEFAULT;
 }
 
+/** HTMLAudio 回退：部分 webview 里比 Web Audio 更容易出声（仍需一次用户点击后更稳）。 */
+function playWhipCrackSoundHtml() {
+  const src = hw.getWhipCrackAudioUrl();
+  if (!src) return Promise.reject(new Error('no whip url'));
+  if (!hw._whipHtmlAudio) {
+    hw._whipHtmlAudio = new Audio(src);
+    hw._whipHtmlAudio.preload = 'auto';
+  } else if (hw._whipHtmlAudio.src !== src && !hw._whipHtmlAudio.src.endsWith(src)) {
+    hw._whipHtmlAudio.src = src;
+  }
+  hw._whipHtmlAudio.currentTime = 0;
+  hw._whipHtmlAudio.volume = 0.85;
+  return hw._whipHtmlAudio.play();
+}
+
+function primeWhipAudioOnGesture() {
+  if (hw._whipAudioPrimed) return;
+  hw._whipAudioPrimed = true;
+  const ctx = hw.ensureWhipAudioContext();
+  void hw.ensureWhipAudioRunning(ctx);
+  void hw.loadWhipCrackAudio();
+  void hw.playWhipCrackSoundHtml().catch(() => {});
+}
+
 function whipCrackAudioCandidates(primary) {
   const list = [primary];
   if (/^https?:/i.test(primary) || primary.includes('vscode-webview://')) return list;
@@ -146,11 +170,32 @@ function playWhipCrackSoundSynth(ctx) {
   click.stop(now + 0.014);
 }
 
-function playWhipCrackSound() {
+async function ensureWhipAudioRunning(ctx) {
+  if (!ctx) return false;
+  if (ctx.state === 'suspended') {
+    try {
+      await ctx.resume();
+    } catch {
+      return false;
+    }
+  }
+  return ctx.state === 'running';
+}
+
+async function playWhipCrackSound() {
   if (hw.state.whipSoundMuted) return;
   const ctx = hw.ensureWhipAudioContext();
-  if (!ctx) return;
-  if (ctx.state === 'suspended') void ctx.resume();
+  const running = ctx ? await hw.ensureWhipAudioRunning(ctx) : false;
+
+  if (!running) {
+    try {
+      await hw.playWhipCrackSoundHtml();
+      return;
+    } catch {
+      if (ctx) hw.playWhipCrackSoundSynth(ctx);
+      return;
+    }
+  }
 
   if (hw.whipCrackBuffer) {
     hw.playWhipCrackFromBuffer(ctx, hw.whipCrackBuffer);
@@ -160,10 +205,17 @@ function playWhipCrackSound() {
     hw.playWhipCrackSoundSynth(ctx);
     return;
   }
-  void hw.loadWhipCrackAudio().then(() => {
+  void hw.loadWhipCrackAudio().then(async () => {
     if (hw.state.whipSoundMuted) return;
     const c = hw.ensureWhipAudioContext();
-    if (!c) return;
+    if (!c || !(await hw.ensureWhipAudioRunning(c))) {
+      try {
+        await hw.playWhipCrackSoundHtml();
+      } catch {
+        if (c) hw.playWhipCrackSoundSynth(c);
+      }
+      return;
+    }
     if (hw.whipCrackBuffer) hw.playWhipCrackFromBuffer(c, hw.whipCrackBuffer);
     else hw.playWhipCrackSoundSynth(c);
   });
@@ -313,8 +365,11 @@ Object.assign(hw, {
   getWhipCrackAudioUrl,
   whipCrackAudioCandidates,
   loadWhipCrackAudio,
+  playWhipCrackSoundHtml,
+  primeWhipAudioOnGesture,
   playWhipCrackFromBuffer,
   playWhipCrackSoundSynth,
+  ensureWhipAudioRunning,
   playWhipCrackSound,
   syncWhipSoundMuteButton,
   toggleWhipSoundMute,

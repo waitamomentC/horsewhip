@@ -209,7 +209,6 @@ function buildLaneSlice(parsed, catalog, laneIndex) {
     });
   }
 
-  hw.addLaneVersionTrace(lane, nodes, links, parsed, bundlesOnLane);
   if (lane.isBranchLane && bundlesOnLane.length > 1) {
     for (let i = 1; i < bundlesOnLane.length; i += 1) {
       links.push({
@@ -225,19 +224,19 @@ function buildLaneSlice(parsed, catalog, laneIndex) {
 
   (parsed.branchSegments || []).forEach((seg) => {
     const forkCommit = parsed.commitMap[seg.forkHash];
-      const mergeCommit = seg.mergeHash ? parsed.commitMap[seg.mergeHash] : null;
-      const joinV = hw.branchSegmentJoinColumn(seg, parsed);
-      const drawMerge = hw.shouldDrawMergeIntoParent(seg, parsed);
-      if (!forkCommit) return;
-      catalog.lanes.forEach((branchLane) => {
-        if (!branchLane.isBranchLane || branchLane.branchSegment !== seg) return;
-        const parentLane = catalog.lanes.find((l) => l.path === branchLane.parentLanePath);
-        if (!parentLane) return;
+    const mergeCommit = seg.mergeHash ? parsed.commitMap[seg.mergeHash] : null;
+    const joinV = hw.branchSegmentJoinColumn(seg, parsed);
+    const drawMerge = hw.shouldDrawMergeIntoParent(seg, parsed);
+    if (!forkCommit) return;
+    catalog.lanes.forEach((branchLane) => {
+      if (!branchLane.isBranchLane || branchLane.branchSegment !== seg) return;
+      const parentLane = catalog.lanes.find((l) => l.path === branchLane.parentLanePath);
+      if (!parentLane) return;
 
-        const forkV = hw.laneForkV(parentLane, seg, parsed);
-        const mergeV = drawMerge ? joinV : null;
-        const forkX = hw.versionX(forkV);
-        const mergeX = mergeV != null ? hw.versionX(mergeV) : null;
+      const forkV = hw.laneForkV(parentLane, seg, parsed);
+      const mergeV = drawMerge ? joinV : null;
+      const forkX = hw.versionX(forkV);
+      const mergeX = mergeV != null ? hw.versionX(mergeV) : null;
 
       const branchBundles = hw.branchBundlesOnLane(parsed, catalog, seg, branchLane);
       const firstBranch = branchBundles[0];
@@ -257,19 +256,25 @@ function buildLaneSlice(parsed, catalog, laneIndex) {
         });
       }
 
-      if (drawMerge && mergeV != null && branchLane.laneIndex === laneIndex
-        && lastBranch
-        && (hw.columnInWindow(mergeV) || hw.columnInWindow(lastBranch.displayColumn))) {
+      if (drawMerge && mergeV != null && branchLane.laneIndex === laneIndex) {
         const historical = hw.branchSegmentFrozenMerge(seg, parsed);
         const histMerge = historical || hw.branchMergeIsBehindTip(seg, parsed);
-        let mergeSource = histMerge ? hw.branchTipAtMerge(seg, parsed) : lastBranch.commit;
+        let mergeSource = histMerge ? hw.branchTipAtMerge(seg, parsed) : lastBranch?.commit;
+        if (!mergeSource) mergeSource = hw.branchTipAtMerge(seg, parsed);
+        if (!mergeSource) return;
+        if (!hw.columnInWindow(mergeV)
+          && !(mergeSource.versionIndex ?? mergeSource.displayColumn)) return;
         if (mergeSource && mergeV != null) {
           const srcCol = mergeSource.versionIndex ?? mergeSource.displayColumn;
           if (srcCol > mergeV) mergeSource = hw.branchTipAtMerge(seg, parsed);
         }
         const mergeFromCol = mergeSource
           ? (mergeSource.versionIndex ?? mergeSource.displayColumn)
-          : lastBranch.displayColumn;
+          : (lastBranch?.displayColumn ?? mergeV);
+        if (!hw.columnInWindow(mergeV) && !hw.columnInWindow(mergeFromCol)) return;
+        hw.ensureBranchMergeSourceNode(
+          nodes, branchLane, seg, parsed, mergeFromCol, mergeSource, focusGraphX, head,
+        );
         const mergeFromX = hw.versionX(mergeFromCol);
         const mergeToX = mergeX ?? hw.versionX(mergeV);
         links.push({
@@ -286,6 +291,8 @@ function buildLaneSlice(parsed, catalog, laneIndex) {
       }
     });
   });
+
+  hw.addLaneVersionTrace(lane, nodes, links, parsed, bundlesOnLane);
 
   return { nodes, links, bundlesOnLane };
 }

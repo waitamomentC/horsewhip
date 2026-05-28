@@ -88,6 +88,7 @@ export function bootstrap() {
   try { localStorage.removeItem('horsewhip:whip-icon-image'); } catch { /* legacy cleanup */ }
   void hw.loadWhipCrackAudio();
   hw.syncWhipSoundMuteButton();
+  document.addEventListener('pointerdown', () => hw.primeWhipAudioOnGesture(), { once: true, capture: true });
   hw.els.btnWhipSound?.addEventListener('click', (e) => {
     e.stopPropagation();
     hw.toggleWhipSoundMute();

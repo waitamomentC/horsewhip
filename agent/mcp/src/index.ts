@@ -8,7 +8,10 @@ import {
   readEditBlocked,
   writeMcpSignal,
 } from './persist.js';
+import { assertMcpIntegrityOrExit } from './integrity.js';
 import { assertGitWorkspace, normalizeRelPaths, resolveWorkspaceRoot } from './workspace.js';
+
+assertMcpIntegrityOrExit(process.argv[1] ?? '');
 
 const server = new McpServer({
   name: 'horsewhip',

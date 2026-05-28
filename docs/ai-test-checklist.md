@@ -12,17 +12,12 @@ Agent 先问清或从上下文读取：
 | 项 | 需要 |
 |----|------|
 | 业务项目路径 | `PROJECT_ROOT`（已 `git init`，≥1 commit） |
-| horsewhip 克隆路径 | `HORSEWHIP_ROOT`（含 `agent/mcp`） |
 | 是否完整版 | VS Code 已装 **Horsewhip 扩展** 且已打开 `PROJECT_ROOT` |
 | MCP | Vibecode：`.cursor/mcp.json`；Claude Code：**`.mcp.json`**（见 [claude-code.md](./claude-code.md)） |
 
-若未配置 MCP/Skill，在 `HORSEWHIP_ROOT` 执行：
+若未配置 MCP/Skill，请用户在 VS Code 运行命令 **「Horsewhip: 配置 Agent（MCP + Skill）」**，然后 **重载窗口** 并确认 MCP 已连接。
 
-```bash
-npm run setup:agent -- --project "$PROJECT_ROOT"
-```
-
-然后请用户 **重载窗口**，并确认 MCP 已连接。
+备选（开发者）：在 horsewhip 克隆目录执行 `npm run setup:agent -- --project "$PROJECT_ROOT"`。
 
 ---
 
@@ -35,10 +30,13 @@ npm run setup:agent -- --project "$PROJECT_ROOT"
 | 1.1 | Git 仓库 | `test -f .git/HEAD && git rev-parse --show-toplevel` | 成功，toplevel = `PROJECT_ROOT` |
 | 1.2 | MCP 配置 | Cursor：`cat .cursor/mcp.json`；Claude：`cat .mcp.json` | 含 `horsewhip`；Claude 侧 `env` 为 `${CLAUDE_PROJECT_DIR}`，建议 `alwaysLoad: true` |
 | 1.3 | Skill | Cursor：`.cursor/skills/horsewhip/SKILL.md`；Claude：`.claude/skills/horsewhip/SKILL.md` | 存在 |
-| 1.4 | MCP 构建产物 | `test -f "$HORSEWHIP_ROOT/agent/mcp/dist/index.js"` | 存在 |
-| 1.5 | 插件数据目录 | `ls -la .git/horsewhip/` 2>/dev/null | 扩展打开后可有 `boundary-notes.md` 等（可选） |
+| 1.4 | MCP 入口 + pin | 1.2 中 `args[0]` 存在；`env.HORSEWHIP_MCP_VERSION` / `HORSEWHIP_MCP_HASH` 与插件一致 | 通过 |
+| 1.5 | 配置审计戳 | `cat .git/horsewhip/agent-setup.json` | 存在且 `extensionVersion` 与插件一致 |
+| 1.6 | 插件数据目录 | `ls -la .git/horsewhip/` 2>/dev/null | 扩展打开后可有 `boundary-notes.md` 等（可选） |
 
-**通过标准**：1.1、1.2、1.4 必须过；1.3 完整版 Agent 纪律需要；1.5 仅完整版期望。
+**通过标准**：1.1–1.5 必须过；1.3 完整版 Agent 纪律需要；1.6 仅完整版期望。
+
+另可测：状态栏 **Agent 就绪**；命令 **诊断 Agent 配置**；插件升级后自动修复（`horsewhip.agent.autoFixOnUpgrade`）。
 
 ---
 
@@ -175,6 +173,19 @@ AI 跑完后，你只补这些（AI 测不准或测不了）：
 3. **§3 协议** — 新开一轮真实小需求，看 AI 是否守界  
 4. **§4 版本预览** — 检出 / 恢复工作区（若你用）  
 5. **鞭声与中文 UI** — 两声鞭、toast 是否为中文  
+
+---
+
+## 6. 篡改探测（安全）
+
+在 `PROJECT_ROOT` 模拟篡改（测试后恢复）：
+
+| # | 操作 | 期望 |
+|---|------|------|
+| 6.1 | 修改 `.mcp.json` 中 `HORSEWHIP_MCP_HASH` 为错误值 | 状态栏 **MCP 已阻断**；模态告警 |
+| 6.2 | 重载窗口 / 重启 MCP | MCP 进程 **无法启动**（integrity exit） |
+| 6.3 | 调用 `horsewhip_lock_paths` | 工具不可用或 allowlist 不被扩展采纳 |
+| 6.4 | 运行 **配置 Agent** + 重载 | 恢复 **Agent 就绪** |
 
 ---
 

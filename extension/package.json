@@ -2,7 +2,7 @@
   "name": "horsewhip",
   "displayName": "Horsewhip",
   "description": "File-lane timeline + dual whip guards: aim on graph, instant revert on illegal writes, boundary metadata in .git/horsewhip—expand fence in UI before editing outside.",
-  "version": "2.0.1",
+  "version": "2.1.1",
   "publisher": "horsewhip",
   "license": "AGPL-3.0-or-later",
   "icon": "media/horsewhip-icon-128.png",
@@ -48,7 +48,7 @@
     "viewsWelcome": [
       {
         "view": "horsewhip.timelineView",
-        "contents": "文件泳道 · 两重鞭守门（瞄准 + 写盘拦截）。\n[打开 Horsewhip 泳道](command:horsewhip.open)"
+        "contents": "文件泳道 · 两重鞭守门（瞄准 + 写盘拦截）。\n[打开 Horsewhip 泳道](command:horsewhip.open)\n[配置 Agent（MCP + Skill）](command:horsewhip.setupAgent)"
       }
     ],
     "commands": [
@@ -101,11 +101,31 @@
         "command": "horsewhip.installCommitHook",
         "title": "Horsewhip: 安装 Git Pre-Commit 守门钩子",
         "icon": "$(shield)"
+      },
+      {
+        "command": "horsewhip.setupAgent",
+        "title": "Horsewhip: 配置 Agent（MCP + Skill）",
+        "icon": "$(server-process)"
+      },
+      {
+        "command": "horsewhip.checkAgentSetup",
+        "title": "Horsewhip: 诊断 Agent 配置",
+        "icon": "$(debug-console)"
       }
     ],
     "configuration": {
       "title": "Horsewhip",
       "properties": {
+        "horsewhip.agent.validateOnOpen": {
+          "type": "boolean",
+          "default": true,
+          "description": "打开 Git 工作区时检查 Agent（MCP）配置是否与当前插件版本一致；不一致时提示重新配置。"
+        },
+        "horsewhip.agent.autoFixOnUpgrade": {
+          "type": "boolean",
+          "default": true,
+          "description": "插件升级后若 MCP 配置过期（路径/版本/哈希），自动重写 .mcp.json 与 Skill，并提示重载窗口。"
+        },
         "horsewhip.guard.onSave": {
           "type": "boolean",
           "default": true,
@@ -224,6 +244,12 @@
         },
         {
           "command": "horsewhip.installCommitHook"
+        },
+        {
+          "command": "horsewhip.setupAgent"
+        },
+        {
+          "command": "horsewhip.checkAgentSetup"
         }
       ]
     }
@@ -231,7 +257,8 @@
   "scripts": {
     "vscode:prepublish": "npm run build:all",
     "build:web": "cd .. && npm run build:web",
-    "build:all": "npm run build:web && npm run sync-assets && npm run compile",
+    "build:all": "npm run build:web && npm run sync-assets && npm run sync-mcp && npm run compile",
+    "sync-mcp": "node ./scripts/sync-mcp-bundle.js",
     "build:extension": "npm run build:all",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",

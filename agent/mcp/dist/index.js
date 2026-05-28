@@ -3,7 +3,9 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { persistAllowlist, readAllowlistRecord, readEditBlocked, writeMcpSignal, } from './persist.js';
+import { assertMcpIntegrityOrExit } from './integrity.js';
 import { assertGitWorkspace, normalizeRelPaths, resolveWorkspaceRoot } from './workspace.js';
+assertMcpIntegrityOrExit(process.argv[1] ?? '');
 const server = new McpServer({
     name: 'horsewhip',
     version: '2.0.0',

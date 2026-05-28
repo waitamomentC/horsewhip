@@ -24,6 +24,8 @@ pnpm-debug.log*
 # VS Code extension (build & package)
 extension/node_modules/
 extension/out/
+extension/media/mcp/
+extension/media/skills/
 *.vsix
 
 # Secrets & local env

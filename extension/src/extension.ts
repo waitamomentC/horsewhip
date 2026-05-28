@@ -10,6 +10,8 @@ import {
   installHorsewhipPreCommitHook,
   isHorsewhipPreCommitHookInstalled,
 } from './boundaryGitHook';
+import { bootstrapAgentSetupChecks } from './agentSetup';
+import { registerAgentSetupUi, refreshAgentSetupStatus } from './agentSetupUi';
 import { HorsewhipLauncherProvider } from './horsewhipLauncher';
 import { HorsewhipPanel } from './horsewhipPanel';
 import { ensureWorkspaceReady } from './workspaceGate';
@@ -44,6 +46,14 @@ async function bootstrapGuardForWorkspace(
 export function activate(context: vscode.ExtensionContext): void {
   registerBoundaryGuard(context);
   registerBoundaryMcpBridge(context);
+  registerAgentSetupUi(context);
+  void bootstrapAgentSetupChecks(context).then(async () => {
+    for (const root of gitWorkspaceRoots()) {
+      const { evaluateMcpTrust } = await import('./mcpTrustGate');
+      await evaluateMcpTrust(context, root);
+    }
+    refreshAgentSetupStatus(context);
+  });
 
   for (const root of gitWorkspaceRoots()) {
     void bootstrapGuardForWorkspace(context, root);
@@ -54,6 +64,7 @@ export function activate(context: vscode.ExtensionContext): void {
       for (const root of gitWorkspaceRoots()) {
         void bootstrapGuardForWorkspace(context, root);
       }
+      void bootstrapAgentSetupChecks(context);
     }),
   );
 

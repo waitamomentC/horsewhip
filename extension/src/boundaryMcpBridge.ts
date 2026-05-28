@@ -4,13 +4,16 @@ import * as vscode from 'vscode';
 import { applyBoundaryFromExternalSource, syncBoundaryMemoryFromDisk } from './boundaryHostSync';
 import { getBoundaryAllowlist, getEffectiveBoundaryLocked, reloadBoundaryFromDisk } from './boundaryAllowlist';
 import { HorsewhipPanel } from './horsewhipPanel';
+import { playWhipSoundFromHost } from './whipSoundHost';
 import {
   allowlistFilePath,
   clearMcpSignal,
   mcpSignalFilePath,
+  readAllowlistRecord,
   readMcpSignal,
   type McpSignalRecord,
 } from './boundaryPersist';
+import { assertMcpTrustForBridge } from './mcpTrustGate';
 
 function gitWorkspaceRoots(): string[] {
   return (vscode.workspace.workspaceFolders ?? [])
@@ -51,7 +54,15 @@ function ceremonyToast(signal: McpSignalRecord): string | undefined {
   return undefined;
 }
 
-async function handleAllowlistChange(workspaceRoot: string): Promise<void> {
+async function handleAllowlistChange(
+  context: vscode.ExtensionContext,
+  workspaceRoot: string,
+): Promise<void> {
+  const rec = await readAllowlistRecord(workspaceRoot);
+  if (rec?.lockSource === 'mcp') {
+    const trusted = await assertMcpTrustForBridge(context, workspaceRoot, 'allowlist');
+    if (!trusted) return;
+  }
   await syncBoundaryMemoryFromDisk(workspaceRoot);
 }
 
@@ -62,6 +73,12 @@ async function handleMcpSignal(
   const signal = await readMcpSignal(workspaceRoot);
   if (!signal) return;
 
+  const trusted = await assertMcpTrustForBridge(context, workspaceRoot, 'signal');
+  if (!trusted) {
+    await clearMcpSignal(workspaceRoot);
+    return;
+  }
+
   const playWhip = signal.playWhip !== false;
   const toast = ceremonyToast(signal);
 
@@ -69,10 +86,14 @@ async function handleMcpSignal(
     await reloadBoundaryFromDisk(workspaceRoot);
     const files = getBoundaryAllowlist();
     const locked = await getEffectiveBoundaryLocked(workspaceRoot);
+    if (playWhip) {
+      playWhipSoundFromHost(context.extensionUri);
+    }
     HorsewhipPanel.get()?.timeline.postBoundarySync({
       files,
       locked,
-      playWhip,
+      // MCP 鞭声由扩展宿主播放（webview AudioContext 常因无手势/后台而静默）
+      playWhip: false,
       toast,
       ceremony: signal.type === 'task_complete' ? 'task_complete' : undefined,
       ceremonyOnly: true,
@@ -106,12 +127,12 @@ function watchHorsewhipMeta(
   const allowlistWatcher = vscode.workspace.createFileSystemWatcher(allowlistPattern);
   allowlistWatcher.onDidChange(() => {
     scheduleDebounced(debounceKey(workspaceRoot, 'allowlist'), () => {
-      void handleAllowlistChange(workspaceRoot);
+      void handleAllowlistChange(context, workspaceRoot);
     });
   });
   allowlistWatcher.onDidCreate(() => {
     scheduleDebounced(debounceKey(workspaceRoot, 'allowlist'), () => {
-      void handleAllowlistChange(workspaceRoot);
+      void handleAllowlistChange(context, workspaceRoot);
     });
   });
 

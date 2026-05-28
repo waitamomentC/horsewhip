@@ -23,6 +23,8 @@
 
 打开你的 **Git 项目文件夹** 后，守门自动激活（不必先点侧栏）。
 
+**完整版（Vibecode / Claude Code + Agent）**：命令 **Horsewhip: 配置 Agent（MCP + Skill）** → 重载窗口。详见 [agent-setup.md](./agent-setup.md)。
+
 ---
 
 ## 2. 打开泳道

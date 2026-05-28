@@ -1148,6 +1148,42 @@
       bundlesOnLane.sort((a, b) => a.displayColumn - b.displayColumn);
     }
   }
+  function ensureBranchMergeSourceNode(nodes, branchLane, seg, parsed, mergeFromCol, mergeSource, focusGraphX, head) {
+    if (mergeFromCol == null || !hw.columnInWindow(mergeFromCol)) return;
+    if (hw.nodeOnLaneAtColumn(nodes, branchLane.path, mergeFromCol)) return;
+    if (!mergeSource || !branchLane?.isBranchLane) return;
+    const parentPath = branchLane.parentLanePath;
+    const matched = mergeSource.files.filter((f) => hw.fileMatchesLane(f, branchLane));
+    const files = matched.length ? matched : [parentPath].filter(Boolean);
+    const nodeId = `${mergeSource.hash}:${branchLane.path}@c${mergeFromCol}`;
+    nodes.push({
+      id: nodeId,
+      hash: mergeSource.hash,
+      author: mergeSource.author,
+      date: mergeSource.date,
+      subject: mergeSource.subject || "",
+      versionIndex: mergeSource.versionIndex,
+      laneVersion: mergeSource.laneVersions?.[parentPath] ?? null,
+      globalIndex: mergeFromCol,
+      graphX: mergeFromCol,
+      displayColumn: mergeFromCol,
+      lanePath: branchLane.path,
+      laneIndex: branchLane.laneIndex,
+      lane: branchLane,
+      label: branchLane.label,
+      filePath: files[0],
+      files,
+      fileCount: files.length,
+      isFocus: hw.columnsMatch(mergeFromCol, focusGraphX),
+      isPulse: hw.nodeIsPulsing({ id: nodeId }),
+      isHead: mergeSource.hash === head.hash,
+      isHub: true,
+      isBranchMergeSource: true,
+      isFolderAggregate: false,
+      isBranchLane: true,
+      branchName: seg.name
+    });
+  }
   Object.assign(hw, {
     segmentTouchesLane,
     branchSegmentFullyOnMainline,
@@ -1169,7 +1205,8 @@
     shouldDrawMergeIntoParent,
     branchSegmentLandingCommit,
     mergeLaneVersionOnParent,
-    ensureParentMergeLandingNode
+    ensureParentMergeLandingNode,
+    ensureBranchMergeSourceNode
   });
 
   // src/lanes/bounds.js
@@ -1979,7 +2016,6 @@
         );
       });
     }
-    hw.addLaneVersionTrace(lane, nodes, links, parsed, bundlesOnLane);
     if (lane.isBranchLane && bundlesOnLane.length > 1) {
       for (let i = 1; i < bundlesOnLane.length; i += 1) {
         links.push({
@@ -2021,15 +2057,29 @@
             active: true
           });
         }
-        if (drawMerge && mergeV != null && branchLane.laneIndex === laneIndex && lastBranch && (hw.columnInWindow(mergeV) || hw.columnInWindow(lastBranch.displayColumn))) {
+        if (drawMerge && mergeV != null && branchLane.laneIndex === laneIndex) {
           const historical = hw.branchSegmentFrozenMerge(seg, parsed);
           const histMerge = historical || hw.branchMergeIsBehindTip(seg, parsed);
-          let mergeSource = histMerge ? hw.branchTipAtMerge(seg, parsed) : lastBranch.commit;
+          let mergeSource = histMerge ? hw.branchTipAtMerge(seg, parsed) : lastBranch?.commit;
+          if (!mergeSource) mergeSource = hw.branchTipAtMerge(seg, parsed);
+          if (!mergeSource) return;
+          if (!hw.columnInWindow(mergeV) && !(mergeSource.versionIndex ?? mergeSource.displayColumn)) return;
           if (mergeSource && mergeV != null) {
             const srcCol = mergeSource.versionIndex ?? mergeSource.displayColumn;
             if (srcCol > mergeV) mergeSource = hw.branchTipAtMerge(seg, parsed);
           }
-          const mergeFromCol = mergeSource ? mergeSource.versionIndex ?? mergeSource.displayColumn : lastBranch.displayColumn;
+          const mergeFromCol = mergeSource ? mergeSource.versionIndex ?? mergeSource.displayColumn : lastBranch?.displayColumn ?? mergeV;
+          if (!hw.columnInWindow(mergeV) && !hw.columnInWindow(mergeFromCol)) return;
+          hw.ensureBranchMergeSourceNode(
+            nodes,
+            branchLane,
+            seg,
+            parsed,
+            mergeFromCol,
+            mergeSource,
+            focusGraphX,
+            head
+          );
           const mergeFromX = hw.versionX(mergeFromCol);
           const mergeToX = mergeX ?? hw.versionX(mergeV);
           links.push({
@@ -2046,6 +2096,7 @@
         }
       });
     });
+    hw.addLaneVersionTrace(lane, nodes, links, parsed, bundlesOnLane);
     return { nodes, links, bundlesOnLane };
   }
   function branchLabelForNode(node) {
@@ -3337,7 +3388,7 @@ git reset --hard ${hash}`;
       `link-${kind}`,
       extraClass || ""
     ].filter(Boolean).join(" "));
-    group.append("path").attr("class", `link-segment link-core link-core--${variant} link-${kind}`).attr("d", d).attr("fill", "none").attr("stroke", kind === "bus" ? laneColorDim : active ? laneColor : laneColorDim).style("opacity", active ? 1 : 1);
+    group.append("path").attr("class", `link-segment link-core link-core--${variant} link-${kind}`).attr("d", d).attr("fill", "none").attr("stroke", kind === "bus" ? laneColorDim : active ? laneColor : laneColorDim).style("opacity", hw.state.animateNext ? 0.15 : active ? 1 : 1);
     group.selectAll(".link-segment").each(function() {
       if (datum) d3.select(this).datum(datum);
     });
@@ -3451,21 +3502,59 @@ git reset --hard ${hash}`;
   });
 
   // src/graph/render.js
+  function spatialEntranceRank(laneIndex, column) {
+    const lane = Number.isFinite(laneIndex) ? laneIndex : 0;
+    const col = Number.isFinite(column) ? column : 0;
+    return lane * 1e4 + col;
+  }
+  function linkEntranceRank(el) {
+    const laneSlice = el.closest?.(".lane-slice");
+    const laneIndex = laneSlice ? parseInt(laneSlice.getAttribute("data-lane-index"), 10) : 0;
+    const group = el.parentNode;
+    const datum = group ? d3.select(group).datum() : null;
+    if (!datum) {
+      return spatialEntranceRank(laneIndex, 0);
+    }
+    if (datum.kind === "lane-track") {
+      return spatialEntranceRank(laneIndex, datum.vStart ?? datum.vEnd ?? 0);
+    }
+    if (datum.vStart != null || datum.vEnd != null) {
+      return spatialEntranceRank(laneIndex, datum.vStart ?? datum.vEnd ?? 0);
+    }
+    if (datum.from) {
+      return spatialEntranceRank(laneIndex, datum.from.displayColumn ?? datum.from.graphX ?? 0);
+    }
+    if (datum.x1 != null) {
+      return spatialEntranceRank(laneIndex, datum.x1);
+    }
+    return spatialEntranceRank(laneIndex, datum.graphX ?? 0);
+  }
   function runGraphEntrance() {
     const animate = hw.state.animateNext;
     hw.state.animateNext = false;
     if (!animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
       hw.gScroll.selectAll(".node-group").attr("opacity", 1);
+      hw.gScroll.selectAll(".link-core").style("opacity", 1);
       return;
     }
-    hw.gScroll.selectAll(".link-core").each(function(_, i) {
-      const len = this.getTotalLength() || 48;
-      d3.select(this).attr("stroke-dasharray", `${len} ${len}`).attr("stroke-dashoffset", len).transition().delay(i * 14).duration(380).ease(d3.easeCubicOut).attr("stroke-dashoffset", 0).on("end", function() {
+    const linkEls = hw.gScroll.selectAll(".link-core").nodes().map((el) => ({ el, rank: hw.linkEntranceRank(el) })).sort((a, b) => a.rank - b.rank);
+    linkEls.forEach(({ el }, i) => {
+      const len = el.getTotalLength?.() || 48;
+      d3.select(el).attr("stroke-dasharray", `${len} ${len}`).attr("stroke-dashoffset", len).style("opacity", 0.2).transition().delay(i * 6).duration(240).ease(d3.easeCubicOut).attr("stroke-dashoffset", 0).style("opacity", 1).on("end", function() {
+        const group = this.parentNode ? d3.select(this.parentNode) : null;
+        const keepHistoricalDash = group?.classed("link-merge--historical");
         d3.select(this).attr("stroke-dasharray", null).attr("stroke-dashoffset", null);
+        if (keepHistoricalDash) d3.select(this).style("stroke-dasharray", "6 4");
       });
     });
-    hw.gScroll.selectAll(".node-group").each(function(_, i) {
-      d3.select(this).transition().delay(120 + i * 22).duration(340).ease(d3.easeBackOut.overshoot(1.15)).attr("opacity", 1);
+    const nodeEls = hw.gScroll.selectAll(".node-group").nodes().map((el) => {
+      const d = d3.select(el).datum();
+      const laneIndex = d?.laneIndex ?? parseInt(el.closest?.(".lane-slice")?.getAttribute("data-lane-index") ?? "0", 10);
+      const col = d?.displayColumn ?? d?.graphX ?? 0;
+      return { el, rank: hw.spatialEntranceRank(laneIndex, col) };
+    }).sort((a, b) => a.rank - b.rank);
+    nodeEls.forEach(({ el }, i) => {
+      d3.select(el).attr("opacity", 0).transition().delay(28 + i * 10).duration(220).ease(d3.easeCubicOut).attr("opacity", 1);
     });
   }
   function graphViewportWidthPx() {
@@ -3543,7 +3632,7 @@ git reset --hard ${hash}`;
         "track",
         false,
         hw.laneLine(x1, y, x2, y),
-        null,
+        link,
         null,
         link.lane.colorDim,
         link.lane.colorDim
@@ -3589,7 +3678,8 @@ git reset --hard ${hash}`;
         link,
         null,
         link.branchLane.color,
-        link.branchLane.colorBright || link.branchLane.color
+        link.branchLane.colorBright || link.branchLane.color,
+        link.historical ? "link-merge--historical" : ""
       );
       return;
     }
@@ -3648,6 +3738,25 @@ git reset --hard ${hash}`;
     hw.syncFileRailFocusHighlight();
     hw.syncFileRailBoundaryHighlight();
     hw.syncBranchLaneHighlight();
+  }
+  async function prepareFileRailProgressive(lanes, gen) {
+    const inner = hw.prepareFileRailShell(lanes);
+    const batchSize = lanes.length > 120 ? 24 : 48;
+    for (let i = 0; i < lanes.length; i += batchSize) {
+      if (!hw.renderIsAlive(gen)) return;
+      const frag = document.createDocumentFragment();
+      const end = Math.min(i + batchSize, lanes.length);
+      for (let j = i; j < end; j += 1) {
+        frag.appendChild(hw.appendFileRailRow(lanes[j]));
+      }
+      inner.appendChild(frag);
+      if (end < lanes.length) await hw.yieldToNextFrame();
+    }
+    hw.ensureFileRailScrollPad();
+    hw.syncFileRailFocusHighlight();
+    hw.syncFileRailBoundaryHighlight();
+    hw.syncBranchLaneHighlight();
+    hw.syncFileRailScrollFromState();
   }
   function getLaneSlice(laneIndex) {
     if (!hw.state.laneSliceCache) hw.state.laneSliceCache = /* @__PURE__ */ new Map();
@@ -3773,14 +3882,17 @@ git reset --hard ${hash}`;
       }
     }
   }
-  function finalizeGraphView(catalog) {
-    hw.refreshNodeIndex();
-    hw.setPulseNode(hw.state.pulseNodeId);
-    hw.runGraphEntrance();
+  function applyGraphViewAfterMount(catalog) {
     const maxScroll = hw.maxVerticalScroll();
     hw.state.scrollTop = Math.min(hw.state.scrollTop, maxScroll);
     hw.applyGraphTransform();
     hw.syncFileRailScrollFromState();
+  }
+  function finalizeGraphView(catalog) {
+    hw.refreshNodeIndex();
+    hw.setPulseNode(hw.state.pulseNodeId);
+    hw.runGraphEntrance();
+    hw.applyGraphViewAfterMount(catalog);
   }
   async function syncVisibleLanes(gen, options = {}) {
     const catalog = hw.state.catalog;
@@ -3799,11 +3911,18 @@ git reset --hard ${hash}`;
     }
     const toRemove = [...hw.graphRenderCtx.renderedLanes].filter((i) => i < start || i > end);
     toRemove.forEach((i) => hw.unmountLaneSlice(i));
+    const animating = hw.state.animateNext;
+    const lanesPerFrame = animating ? 1 : 3;
+    let mountedThisFrame = 0;
     for (let i = start; i <= end; i += 1) {
       if (!hw.renderIsAlive(gen)) return;
       if (!hw.graphRenderCtx.renderedLanes.has(i)) {
         hw.mountLaneSlice(i);
-        if (!hw.state.viewportInteracting) await hw.yieldToNextFrame();
+        mountedThisFrame += 1;
+        if (!hw.state.viewportInteracting && mountedThisFrame >= lanesPerFrame && i < end) {
+          mountedThisFrame = 0;
+          await hw.yieldToNextFrame();
+        }
       }
     }
     if (!hw.renderIsAlive(gen)) return;
@@ -3824,7 +3943,7 @@ git reset --hard ${hash}`;
     if (!hw.state.parsed || !hw.renderIsAlive(gen)) return;
     hw.hideTooltip();
     hw.clearError();
-    hw.state.animateNext = false;
+    const shouldAnimate = hw.state.animateNext;
     hw.setGraphStreaming(true);
     if (hw.isPluginHost() && hw.els.graphEmpty) {
       hw.els.graphEmpty.classList.add("hidden");
@@ -3845,10 +3964,14 @@ git reset --hard ${hash}`;
       hw.els.graphEmpty?.classList.add("hidden");
       if (hw.els.graphHint) hw.els.graphHint.hidden = false;
       if (hw.els.graphZoom) hw.els.graphZoom.hidden = false;
-      hw.prepareFileRailAllRows(catalog.lanes);
       hw.prepareGraphShell(catalog);
-      hw.finalizeGraphView(catalog);
+      hw.applyGraphViewAfterMount(catalog);
       await hw.syncVisibleLanes(gen, options);
+      if (hw.renderIsAlive(gen) && shouldAnimate) {
+        hw.state.animateNext = true;
+        hw.runGraphEntrance();
+      }
+      void hw.prepareFileRailProgressive(catalog.lanes, gen);
       if (hw.renderIsAlive(gen) && !hw.applyNewHeadFocusAfterRender()) {
         hw.updateGraphFocus();
         hw.syncNodeRippleVisuals();
@@ -3884,6 +4007,8 @@ git reset --hard ${hash}`;
     hw.bootstrapViewportRender(gen, options);
   }
   Object.assign(hw, {
+    spatialEntranceRank,
+    linkEntranceRank,
     runGraphEntrance,
     graphViewportWidthPx,
     syncGraphSvgViewportSize,
@@ -3898,6 +4023,7 @@ git reset --hard ${hash}`;
     renderGraphNodeEntry,
     prepareGraphShell,
     prepareFileRailAllRows,
+    prepareFileRailProgressive,
     getLaneSlice,
     unmountLaneSlice,
     mountLaneSlice,
@@ -3905,6 +4031,7 @@ git reset --hard ${hash}`;
     renderBusesInRange,
     collectNodesFromRange,
     tryAssignDefaultPulse,
+    applyGraphViewAfterMount,
     finalizeGraphView,
     syncVisibleLanes,
     bootstrapViewportRender,
@@ -4761,6 +4888,28 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     if (hw.isPluginHost()) return "media/whip.wav";
     return hw.WHIP_CRACK_AUDIO_DEFAULT;
   }
+  function playWhipCrackSoundHtml() {
+    const src = hw.getWhipCrackAudioUrl();
+    if (!src) return Promise.reject(new Error("no whip url"));
+    if (!hw._whipHtmlAudio) {
+      hw._whipHtmlAudio = new Audio(src);
+      hw._whipHtmlAudio.preload = "auto";
+    } else if (hw._whipHtmlAudio.src !== src && !hw._whipHtmlAudio.src.endsWith(src)) {
+      hw._whipHtmlAudio.src = src;
+    }
+    hw._whipHtmlAudio.currentTime = 0;
+    hw._whipHtmlAudio.volume = 0.85;
+    return hw._whipHtmlAudio.play();
+  }
+  function primeWhipAudioOnGesture() {
+    if (hw._whipAudioPrimed) return;
+    hw._whipAudioPrimed = true;
+    const ctx = hw.ensureWhipAudioContext();
+    void hw.ensureWhipAudioRunning(ctx);
+    void hw.loadWhipCrackAudio();
+    void hw.playWhipCrackSoundHtml().catch(() => {
+    });
+  }
   function whipCrackAudioCandidates(primary) {
     const list = [primary];
     if (/^https?:/i.test(primary) || primary.includes("vscode-webview://")) return list;
@@ -4861,11 +5010,30 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     click.start(now);
     click.stop(now + 0.014);
   }
-  function playWhipCrackSound() {
+  async function ensureWhipAudioRunning(ctx) {
+    if (!ctx) return false;
+    if (ctx.state === "suspended") {
+      try {
+        await ctx.resume();
+      } catch {
+        return false;
+      }
+    }
+    return ctx.state === "running";
+  }
+  async function playWhipCrackSound() {
     if (hw.state.whipSoundMuted) return;
     const ctx = hw.ensureWhipAudioContext();
-    if (!ctx) return;
-    if (ctx.state === "suspended") void ctx.resume();
+    const running = ctx ? await hw.ensureWhipAudioRunning(ctx) : false;
+    if (!running) {
+      try {
+        await hw.playWhipCrackSoundHtml();
+        return;
+      } catch {
+        if (ctx) hw.playWhipCrackSoundSynth(ctx);
+        return;
+      }
+    }
     if (hw.whipCrackBuffer) {
       hw.playWhipCrackFromBuffer(ctx, hw.whipCrackBuffer);
       return;
@@ -4874,10 +5042,17 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
       hw.playWhipCrackSoundSynth(ctx);
       return;
     }
-    void hw.loadWhipCrackAudio().then(() => {
+    void hw.loadWhipCrackAudio().then(async () => {
       if (hw.state.whipSoundMuted) return;
       const c = hw.ensureWhipAudioContext();
-      if (!c) return;
+      if (!c || !await hw.ensureWhipAudioRunning(c)) {
+        try {
+          await hw.playWhipCrackSoundHtml();
+        } catch {
+          if (c) hw.playWhipCrackSoundSynth(c);
+        }
+        return;
+      }
       if (hw.whipCrackBuffer) hw.playWhipCrackFromBuffer(c, hw.whipCrackBuffer);
       else hw.playWhipCrackSoundSynth(c);
     });
@@ -5014,8 +5189,11 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     getWhipCrackAudioUrl,
     whipCrackAudioCandidates,
     loadWhipCrackAudio,
+    playWhipCrackSoundHtml,
+    primeWhipAudioOnGesture,
     playWhipCrackFromBuffer,
     playWhipCrackSoundSynth,
+    ensureWhipAudioRunning,
     playWhipCrackSound,
     syncWhipSoundMuteButton,
     toggleWhipSoundMute,
@@ -5410,6 +5588,7 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     }
     void hw.loadWhipCrackAudio();
     hw.syncWhipSoundMuteButton();
+    document.addEventListener("pointerdown", () => hw.primeWhipAudioOnGesture(), { once: true, capture: true });
     hw.els.btnWhipSound?.addEventListener("click", (e) => {
       e.stopPropagation();
       hw.toggleWhipSoundMute();

@@ -40,17 +40,21 @@
 
 | # | 操作 |
 |:-:|------|
-| 1 | **VS Code** → 扩展市场搜 **Horsewhip** → 安装 → 重载（插件仅上架 [Visual Studio Marketplace](https://marketplace.visualstudio.com/)，无单独 Vibecode 商店） |
-| 2 | 克隆本仓库，`npm run setup:agent -- --project /path/to/your-app`（把路径换成业务项目） |
-| 3 | 重载窗口 → Vibecode **MCP 设置**里启用 `horsewhip` |
+| 1 | **VS Code** → 扩展市场搜 **Horsewhip** → 安装 → 重载 |
+| 2 | 打开业务 Git 项目 → 命令面板 → **Horsewhip: 配置 Agent（MCP + Skill）** → 按提示重载窗口 |
+| 3 | Vibecode / Cursor **MCP 设置**里确认 `horsewhip` 已启用 |
+
+插件 VSIX **内嵌 MCP + Skill**（与插件版本一致），无需再 clone 本仓。
+
+**备选（开发者 / CI）：** 在本仓库执行 `npm run setup:agent -- --project /path/to/your-app`，或指定扩展目录：
 
 ```bash
 git clone https://github.com/waitamomentC/horsewhip.git
-cd horsewhip
-npm run setup:agent -- --project /path/to/your-app
+cd horsewhip && npm run build:extension
+npm run setup:agent -- --project /path/to/your-app --from-extension ./extension
 ```
 
-脚本会构建 `agent/mcp`、写入 **`.cursor/mcp.json`（Cursor/Vibecode）** 与 **`.mcp.json`（Claude Code）**、链接 Skill。Claude 排错见 [docs/claude-code.md](./docs/claude-code.md)。Windows 链 Skill 失败时加 `--copy-skill`。
+脚本会写入 **`.cursor/mcp.json`（Cursor/Vibecode）** 与 **`.mcp.json`（Claude Code）**、复制 Skill。Claude 排错见 [docs/claude-code.md](./docs/claude-code.md)。分发架构见 [docs/trust-model.md §8](./docs/trust-model.md#8-mcp-分发已知弱点与目标形态)。
 
 `.git/horsewhip/` 为本地守门数据，**勿提交**到业务仓库。
 
@@ -182,10 +186,12 @@ Skill 细则：[agent/skills/horsewhip/SKILL.md](./agent/skills/horsewhip/SKILL.
 
 | 文档 | 内容 |
 |------|------|
+| [docs/agent-setup.md](./docs/agent-setup.md) | **Agent 配置** — 一键 MCP + Skill、升级、诊断 |
 | [docs/claude-code.md](./docs/claude-code.md) | Claude Code MCP / Skill 配置与排错 |
 | [docs/ai-test-checklist.md](./docs/ai-test-checklist.md) | **AI 先跑**的自测清单（MCP + Skill） |
 | [docs/acceptance-checklist.md](./docs/acceptance-checklist.md) | **人工**验收清单（插件 UI/协议） |
 | [docs/user-guide.md](./docs/user-guide.md) | 泳道与挥鞭 |
+| [docs/trust-model.md](./docs/trust-model.md) | **信任模型** — MCP 非沙箱、分发弱点、加固与 roadmap |
 | [docs/boundary-guard.md](./docs/boundary-guard.md) | 守门 |
 | [agent/README.md](./agent/README.md) | MCP / 脚本 |
 | [extension/README.md](./extension/README.md) | 插件 |

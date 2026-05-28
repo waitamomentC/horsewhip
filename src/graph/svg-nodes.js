@@ -325,7 +325,7 @@ function appendLinkPath(parent, kind, active, d, datum, onClick, laneColor, lane
     .attr('d', d)
     .attr('fill', 'none')
     .attr('stroke', kind === 'bus' ? laneColorDim : (active ? laneColor : laneColorDim))
-    .style('opacity', active ? 1 : 1);
+    .style('opacity', hw.state.animateNext ? 0.15 : (active ? 1 : 1));
 
   group.selectAll('.link-segment').each(function () {
     if (datum) d3.select(this).datum(datum);

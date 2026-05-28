@@ -280,6 +280,47 @@ function ensureParentMergeLandingNode(nodes, bundlesOnLane, parentLane, seg, par
   }
 }
 
+function ensureBranchMergeSourceNode(nodes, branchLane, seg, parsed, mergeFromCol, mergeSource, focusGraphX, head) {
+  if (mergeFromCol == null || !hw.columnInWindow(mergeFromCol)) return;
+  if (hw.nodeOnLaneAtColumn(nodes, branchLane.path, mergeFromCol)) return;
+  if (!mergeSource || !branchLane?.isBranchLane) return;
+
+  const parentPath = branchLane.parentLanePath;
+  const matched = mergeSource.files.filter((f) => hw.fileMatchesLane(f, branchLane));
+  const files = matched.length
+    ? matched
+    : [parentPath].filter(Boolean);
+
+  const nodeId = `${mergeSource.hash}:${branchLane.path}@c${mergeFromCol}`;
+  nodes.push({
+    id: nodeId,
+    hash: mergeSource.hash,
+    author: mergeSource.author,
+    date: mergeSource.date,
+    subject: mergeSource.subject || '',
+    versionIndex: mergeSource.versionIndex,
+    laneVersion: mergeSource.laneVersions?.[parentPath] ?? null,
+    globalIndex: mergeFromCol,
+    graphX: mergeFromCol,
+    displayColumn: mergeFromCol,
+    lanePath: branchLane.path,
+    laneIndex: branchLane.laneIndex,
+    lane: branchLane,
+    label: branchLane.label,
+    filePath: files[0],
+    files,
+    fileCount: files.length,
+    isFocus: hw.columnsMatch(mergeFromCol, focusGraphX),
+    isPulse: hw.nodeIsPulsing({ id: nodeId }),
+    isHead: mergeSource.hash === head.hash,
+    isHub: true,
+    isBranchMergeSource: true,
+    isFolderAggregate: false,
+    isBranchLane: true,
+    branchName: seg.name,
+  });
+}
+
 Object.assign(hw, {
   segmentTouchesLane,
   branchSegmentFullyOnMainline,
@@ -302,4 +343,5 @@ Object.assign(hw, {
   branchSegmentLandingCommit,
   mergeLaneVersionOnParent,
   ensureParentMergeLandingNode,
+  ensureBranchMergeSourceNode,
 });

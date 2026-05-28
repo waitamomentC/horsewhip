@@ -1,35 +1,84 @@
 import { hw } from '../core/hw.js';
 
+function spatialEntranceRank(laneIndex, column) {
+  const lane = Number.isFinite(laneIndex) ? laneIndex : 0;
+  const col = Number.isFinite(column) ? column : 0;
+  return lane * 10000 + col;
+}
+
+function linkEntranceRank(el) {
+  const laneSlice = el.closest?.('.lane-slice');
+  const laneIndex = laneSlice ? parseInt(laneSlice.getAttribute('data-lane-index'), 10) : 0;
+  const group = el.parentNode;
+  const datum = group ? d3.select(group).datum() : null;
+  if (!datum) {
+    return spatialEntranceRank(laneIndex, 0);
+  }
+  if (datum.kind === 'lane-track') {
+    return spatialEntranceRank(laneIndex, datum.vStart ?? datum.vEnd ?? 0);
+  }
+  if (datum.vStart != null || datum.vEnd != null) {
+    return spatialEntranceRank(laneIndex, datum.vStart ?? datum.vEnd ?? 0);
+  }
+  if (datum.from) {
+    return spatialEntranceRank(laneIndex, datum.from.displayColumn ?? datum.from.graphX ?? 0);
+  }
+  if (datum.x1 != null) {
+    return spatialEntranceRank(laneIndex, datum.x1);
+  }
+  return spatialEntranceRank(laneIndex, datum.graphX ?? 0);
+}
+
 function runGraphEntrance() {
   const animate = hw.state.animateNext;
   hw.state.animateNext = false;
 
   if (!animate || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     hw.gScroll.selectAll('.node-group').attr('opacity', 1);
+    hw.gScroll.selectAll('.link-core').style('opacity', 1);
     return;
   }
 
-  hw.gScroll.selectAll('.link-core').each(function (_, i) {
-    const len = this.getTotalLength() || 48;
-    d3.select(this)
+  const linkEls = hw.gScroll.selectAll('.link-core').nodes()
+    .map((el) => ({ el, rank: hw.linkEntranceRank(el) }))
+    .sort((a, b) => a.rank - b.rank);
+
+  linkEls.forEach(({ el }, i) => {
+    const len = el.getTotalLength?.() || 48;
+    d3.select(el)
       .attr('stroke-dasharray', `${len} ${len}`)
       .attr('stroke-dashoffset', len)
+      .style('opacity', 0.2)
       .transition()
-      .delay(i * 14)
-      .duration(380)
+      .delay(i * 6)
+      .duration(240)
       .ease(d3.easeCubicOut)
       .attr('stroke-dashoffset', 0)
+      .style('opacity', 1)
       .on('end', function () {
+        const group = this.parentNode ? d3.select(this.parentNode) : null;
+        const keepHistoricalDash = group?.classed('link-merge--historical');
         d3.select(this).attr('stroke-dasharray', null).attr('stroke-dashoffset', null);
+        if (keepHistoricalDash) d3.select(this).style('stroke-dasharray', '6 4');
       });
   });
 
-  hw.gScroll.selectAll('.node-group').each(function (_, i) {
-    d3.select(this)
+  const nodeEls = hw.gScroll.selectAll('.node-group').nodes()
+    .map((el) => {
+      const d = d3.select(el).datum();
+      const laneIndex = d?.laneIndex ?? parseInt(el.closest?.('.lane-slice')?.getAttribute('data-lane-index') ?? '0', 10);
+      const col = d?.displayColumn ?? d?.graphX ?? 0;
+      return { el, rank: hw.spatialEntranceRank(laneIndex, col) };
+    })
+    .sort((a, b) => a.rank - b.rank);
+
+  nodeEls.forEach(({ el }, i) => {
+    d3.select(el)
+      .attr('opacity', 0)
       .transition()
-      .delay(120 + i * 22)
-      .duration(340)
-      .ease(d3.easeBackOut.overshoot(1.15))
+      .delay(28 + i * 10)
+      .duration(220)
+      .ease(d3.easeCubicOut)
       .attr('opacity', 1);
   });
 }
@@ -134,7 +183,7 @@ function renderGraphLink(linkG, link, yScale) {
       'track',
       false,
       hw.laneLine(x1, y, x2, y),
-      null,
+      link,
       null,
       link.lane.colorDim,
       link.lane.colorDim,
@@ -181,6 +230,7 @@ function renderGraphLink(linkG, link, yScale) {
       null,
       link.branchLane.color,
       link.branchLane.colorBright || link.branchLane.color,
+      link.historical ? 'link-merge--historical' : '',
     );
     return;
   }
@@ -242,6 +292,27 @@ function prepareFileRailAllRows(lanes) {
   hw.syncFileRailFocusHighlight();
   hw.syncFileRailBoundaryHighlight();
   hw.syncBranchLaneHighlight();
+}
+
+/** 先画泳道，文件栏分批追加，避免阻塞首帧 */
+async function prepareFileRailProgressive(lanes, gen) {
+  const inner = hw.prepareFileRailShell(lanes);
+  const batchSize = lanes.length > 120 ? 24 : 48;
+  for (let i = 0; i < lanes.length; i += batchSize) {
+    if (!hw.renderIsAlive(gen)) return;
+    const frag = document.createDocumentFragment();
+    const end = Math.min(i + batchSize, lanes.length);
+    for (let j = i; j < end; j += 1) {
+      frag.appendChild(hw.appendFileRailRow(lanes[j]));
+    }
+    inner.appendChild(frag);
+    if (end < lanes.length) await hw.yieldToNextFrame();
+  }
+  hw.ensureFileRailScrollPad();
+  hw.syncFileRailFocusHighlight();
+  hw.syncFileRailBoundaryHighlight();
+  hw.syncBranchLaneHighlight();
+  hw.syncFileRailScrollFromState();
 }
 
 function getLaneSlice(laneIndex) {
@@ -406,14 +477,18 @@ function tryAssignDefaultPulse(start, end, options) {
   }
 }
 
-function finalizeGraphView(catalog) {
-  hw.refreshNodeIndex();
-  hw.setPulseNode(hw.state.pulseNodeId);
-  hw.runGraphEntrance();
+function applyGraphViewAfterMount(catalog) {
   const maxScroll = hw.maxVerticalScroll();
   hw.state.scrollTop = Math.min(hw.state.scrollTop, maxScroll);
   hw.applyGraphTransform();
   hw.syncFileRailScrollFromState();
+}
+
+function finalizeGraphView(catalog) {
+  hw.refreshNodeIndex();
+  hw.setPulseNode(hw.state.pulseNodeId);
+  hw.runGraphEntrance();
+  hw.applyGraphViewAfterMount(catalog);
 }
 
 async function syncVisibleLanes(gen, options = {}) {
@@ -438,11 +513,19 @@ async function syncVisibleLanes(gen, options = {}) {
   const toRemove = [...hw.graphRenderCtx.renderedLanes].filter((i) => i < start || i > end);
   toRemove.forEach((i) => hw.unmountLaneSlice(i));
 
+  const animating = hw.state.animateNext;
+  const lanesPerFrame = animating ? 1 : 3;
+  let mountedThisFrame = 0;
+
   for (let i = start; i <= end; i += 1) {
     if (!hw.renderIsAlive(gen)) return;
     if (!hw.graphRenderCtx.renderedLanes.has(i)) {
       hw.mountLaneSlice(i);
-      if (!hw.state.viewportInteracting) await hw.yieldToNextFrame();
+      mountedThisFrame += 1;
+      if (!hw.state.viewportInteracting && mountedThisFrame >= lanesPerFrame && i < end) {
+        mountedThisFrame = 0;
+        await hw.yieldToNextFrame();
+      }
     }
   }
 
@@ -466,7 +549,7 @@ async function bootstrapViewportRender(gen, options = {}) {
   if (!hw.state.parsed || !hw.renderIsAlive(gen)) return;
   hw.hideTooltip();
   hw.clearError();
-  hw.state.animateNext = false;
+  const shouldAnimate = hw.state.animateNext;
   hw.setGraphStreaming(true);
 
   if (hw.isPluginHost() && hw.els.graphEmpty) {
@@ -492,11 +575,19 @@ async function bootstrapViewportRender(gen, options = {}) {
     hw.els.graphEmpty?.classList.add('hidden');
     if (hw.els.graphHint) hw.els.graphHint.hidden = false;
     if (hw.els.graphZoom) hw.els.graphZoom.hidden = false;
-    hw.prepareFileRailAllRows(catalog.lanes);
+
     hw.prepareGraphShell(catalog);
-    hw.finalizeGraphView(catalog);
+    hw.applyGraphViewAfterMount(catalog);
 
     await hw.syncVisibleLanes(gen, options);
+
+    if (hw.renderIsAlive(gen) && shouldAnimate) {
+      hw.state.animateNext = true;
+      hw.runGraphEntrance();
+    }
+
+    void hw.prepareFileRailProgressive(catalog.lanes, gen);
+
     if (hw.renderIsAlive(gen) && !hw.applyNewHeadFocusAfterRender()) {
       hw.updateGraphFocus();
       hw.syncNodeRippleVisuals();
@@ -535,6 +626,8 @@ function scheduleRenderFromState(options = {}) {
 }
 
 Object.assign(hw, {
+  spatialEntranceRank,
+  linkEntranceRank,
   runGraphEntrance,
   graphViewportWidthPx,
   syncGraphSvgViewportSize,
@@ -549,6 +642,7 @@ Object.assign(hw, {
   renderGraphNodeEntry,
   prepareGraphShell,
   prepareFileRailAllRows,
+  prepareFileRailProgressive,
   getLaneSlice,
   unmountLaneSlice,
   mountLaneSlice,
@@ -556,6 +650,7 @@ Object.assign(hw, {
   renderBusesInRange,
   collectNodesFromRange,
   tryAssignDefaultPulse,
+  applyGraphViewAfterMount,
   finalizeGraphView,
   syncVisibleLanes,
   bootstrapViewportRender,
