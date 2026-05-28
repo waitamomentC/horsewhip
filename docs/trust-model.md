@@ -120,6 +120,7 @@ flowchart LR
 | P2 | **升级后刷新 MCP 路径** | ✅ 2.0.9：打开工作区校验 + 升级后强制提示 |
 | P2 | **stale_hash 阻断 MCP** | ✅ 2.1.2：扩展拒信号/allowlist + MCP 启动自检 exit(1) |
 | P2 | **unlock 需用户确认** | MCP `unlock` 仅写 pending；扩展弹窗确认后生效 |
+| P2 | **守护记录 Phase 2** | PNG 分享卡、Agent 会话、Top N、泳道迷你计数器 — 见 [guard-record.md](./guard-record.md) |
 | P3 | **npm 发布 `@horsewhip/mcp-server`** | 无 clone 时的 `npx` 路径；扩展生成 pin 版本 |
 | P3 | **签名校验** | 与 npm / 内嵌 hash 配套 |
 

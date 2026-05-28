@@ -55,6 +55,7 @@ import { insertTextIntoChat } from './chatInsert';
 import { detectDevStartCommand } from './previewDev';
 import { readAllowlistRecord } from './boundaryPersist';
 import { gitBranchDisplay } from './gitRunner';
+import { bootstrapGuardStats, buildGuardStatsView, onGuardStatsChanged } from './guardStats';
 
 type WebviewInbound =
   | { type: 'ready' }
@@ -92,7 +93,8 @@ type WebviewInbound =
   | { type: 'insertBoundaryToChat'; text: string }
   | { type: 'guardCheck' }
   | { type: 'guardInsertCorrection' }
-  | { type: 'guardRevertOverreach' };
+  | { type: 'guardRevertOverreach' }
+  | { type: 'openGuardRecord' };
 
 export class HorsewhipTimeline {
   private workspaceRoot: string | undefined;
@@ -141,6 +143,12 @@ export class HorsewhipTimeline {
     setGuardWebviewNotifier((payload) => {
       this.webview.postMessage(payload);
     });
+
+    this.disposables.push(
+      onGuardStatsChanged((root) => {
+        if (root === this.workspaceRoot) void this.pushGuardStats();
+      }),
+    );
   }
 
   postBoundarySync(payload: {
@@ -408,6 +416,19 @@ export class HorsewhipTimeline {
       authorName,
       authorEmail,
       guardActive: isGuardActive(),
+    });
+    await this.pushGuardStats();
+  }
+
+  private async pushGuardStats(): Promise<void> {
+    if (!this.workspaceRoot) return;
+    await bootstrapGuardStats(this.workspaceRoot);
+    const view = await buildGuardStatsView(this.workspaceRoot);
+    this.webview.postMessage({
+      type: 'guardStats',
+      attempts: view.totals.attempts,
+      blocked: view.totals.blocked,
+      rate: view.totals.rate,
     });
   }
 
@@ -790,6 +811,11 @@ export class HorsewhipTimeline {
     if (msg.type === 'guardRevertOverreach') {
       if (!this.workspaceRoot) return;
       await revertOverreachFiles(this.workspaceRoot);
+      return;
+    }
+    if (msg.type === 'openGuardRecord') {
+      if (!this.workspaceRoot) return;
+      await vscode.commands.executeCommand('horsewhip.openGuardRecord', this.workspaceRoot);
       return;
     }
     if (msg.type === 'insertBoundaryToChat') {

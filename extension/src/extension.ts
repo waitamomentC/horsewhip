@@ -14,6 +14,8 @@ import { bootstrapAgentSetupChecks } from './agentSetup';
 import { registerAgentSetupUi, refreshAgentSetupStatus } from './agentSetupUi';
 import { HorsewhipLauncherProvider } from './horsewhipLauncher';
 import { HorsewhipPanel } from './horsewhipPanel';
+import { registerGuardRecordPanel } from './guardRecordPanel';
+import { bootstrapGuardStats } from './guardStats';
 import { ensureWorkspaceReady } from './workspaceGate';
 
 function gitWorkspaceRoots(): string[] {
@@ -45,6 +47,7 @@ async function bootstrapGuardForWorkspace(
 
 export function activate(context: vscode.ExtensionContext): void {
   registerBoundaryGuard(context);
+  registerGuardRecordPanel(context);
   registerBoundaryMcpBridge(context);
   registerAgentSetupUi(context);
   void bootstrapAgentSetupChecks(context).then(async () => {
@@ -57,12 +60,14 @@ export function activate(context: vscode.ExtensionContext): void {
 
   for (const root of gitWorkspaceRoots()) {
     void bootstrapGuardForWorkspace(context, root);
+    void bootstrapGuardStats(root);
   }
 
   context.subscriptions.push(
     vscode.workspace.onDidChangeWorkspaceFolders(() => {
       for (const root of gitWorkspaceRoots()) {
         void bootstrapGuardForWorkspace(context, root);
+        void bootstrapGuardStats(root);
       }
       void bootstrapAgentSetupChecks(context);
     }),

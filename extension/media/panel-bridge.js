@@ -268,8 +268,23 @@
     syncGuardArmFromHost(true);
   }
 
+  function applyGuardStats(msg) {
+    const btn = document.getElementById('btn-guard-record');
+    if (!btn) return;
+    const blocked = Number(msg.blocked) || 0;
+    const attempts = Number(msg.attempts) || 0;
+    btn.textContent = blocked > 0 ? `守护记录 ${blocked}` : '守护记录';
+    btn.title =
+      attempts > 0
+        ? `累计越界 ${attempts} 次 · 拦截 ${blocked} 次 — 点击查看仪表盘`
+        : '查看 AI 越界尝试与拦截统计';
+  }
+
   function wireGuardBar() {
     wireGuardArmControl();
+    document.getElementById('btn-guard-record')?.addEventListener('click', () => {
+      if (vscode) vscode.postMessage({ type: 'openGuardRecord' });
+    });
     document.getElementById('btn-guard-check')?.addEventListener('click', () => {
       if (vscode) vscode.postMessage({ type: 'guardCheck' });
     });
@@ -565,6 +580,11 @@
 
     if (msg.type === 'guardStatus') {
       applyGuardStatus(msg);
+      return;
+    }
+
+    if (msg.type === 'guardStats') {
+      applyGuardStats(msg);
       return;
     }
 

@@ -15,6 +15,7 @@ import {
   pathIsUnderAllowlist,
 } from './boundaryGuard';
 import { clearEditBlockedMarker, writeEditBlockedMarker } from './boundaryPersist';
+import { recordGuardEvent } from './guardStats';
 import { insertTextIntoChat } from './chatInsert';
 import { gitRestorePaths } from './gitRunner';
 import { isGuardIgnoredPath } from './boundaryGuard';
@@ -144,6 +145,8 @@ async function notifyEditBlocked(
   const message = buildEditBlockedPrompt(rel, allowed);
   await writeEditBlockedMarker(workspaceRoot, { file: rel, allowed, message });
 
+  void recordGuardEvent(workspaceRoot, { kind: 'edit', files: [rel] });
+
   const noPasture = !allowed.length;
   const pick = await vscode.window.showWarningMessage(
     noPasture
@@ -204,6 +207,7 @@ async function onActiveEditorChanged(workspaceRoot: string): Promise<void> {
         allowed,
         message: buildEditBlockedPrompt(rel, allowed),
       });
+      void recordGuardEvent(workspaceRoot, { kind: 'edit', files: [rel] });
       const noPasture = reason === 'no-pasture';
       void vscode.window
         .showWarningMessage(
@@ -257,6 +261,8 @@ export async function enforceWriteGuard(
 
   const prompt = buildWriteBlockedPrompt(rel, allowed, reason);
   await writeEditBlockedMarker(workspaceRoot, { file: rel, allowed, message: prompt });
+
+  void recordGuardEvent(workspaceRoot, { kind: 'write', files: [rel] });
 
   const now = Date.now();
   if (notifyAiOnWrite && offerToChat && now - lastAiNotifyAt >= AI_NOTIFY_DEBOUNCE_MS) {

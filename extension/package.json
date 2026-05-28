@@ -2,7 +2,7 @@
   "name": "horsewhip",
   "displayName": "Horsewhip",
   "description": "File-lane timeline + dual whip guards: aim on graph, instant revert on illegal writes, boundary metadata in .git/horsewhip—expand fence in UI before editing outside.",
-  "version": "2.1.1",
+  "version": "2.1.4",
   "publisher": "horsewhip",
   "license": "AGPL-3.0-or-later",
   "icon": "media/horsewhip-icon-128.png",
@@ -48,7 +48,7 @@
     "viewsWelcome": [
       {
         "view": "horsewhip.timelineView",
-        "contents": "文件泳道 · 两重鞭守门（瞄准 + 写盘拦截）。\n[打开 Horsewhip 泳道](command:horsewhip.open)\n[配置 Agent（MCP + Skill）](command:horsewhip.setupAgent)"
+        "contents": "文件泳道 · 两重鞭守门。\n[打开 Horsewhip 泳道](command:horsewhip.open)\n[守护记录](command:horsewhip.openGuardRecord) · [配置 Agent](command:horsewhip.setupAgent)"
       }
     ],
     "commands": [
@@ -111,6 +111,11 @@
         "command": "horsewhip.checkAgentSetup",
         "title": "Horsewhip: 诊断 Agent 配置",
         "icon": "$(debug-console)"
+      },
+      {
+        "command": "horsewhip.openGuardRecord",
+        "title": "Horsewhip: 守护记录",
+        "icon": "$(graph)"
       }
     ],
     "configuration": {
@@ -250,6 +255,9 @@
         },
         {
           "command": "horsewhip.checkAgentSetup"
+        },
+        {
+          "command": "horsewhip.openGuardRecord"
         }
       ]
     }

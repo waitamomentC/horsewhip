@@ -190,6 +190,7 @@ Skill 细则：[agent/skills/horsewhip/SKILL.md](./agent/skills/horsewhip/SKILL.
 | [docs/claude-code.md](./docs/claude-code.md) | Claude Code MCP / Skill 配置与排错 |
 | [docs/ai-test-checklist.md](./docs/ai-test-checklist.md) | **AI 先跑**的自测清单（MCP + Skill） |
 | [docs/acceptance-checklist.md](./docs/acceptance-checklist.md) | **人工**验收清单（插件 UI/协议） |
+| [docs/guard-record.md](./docs/guard-record.md) | **守护记录** — 越界统计（Phase 1）+ Phase 2 计划 |
 | [docs/user-guide.md](./docs/user-guide.md) | 泳道与挥鞭 |
 | [docs/trust-model.md](./docs/trust-model.md) | **信任模型** — MCP 非沙箱、分发弱点、加固与 roadmap |
 | [docs/boundary-guard.md](./docs/boundary-guard.md) | 守门 |

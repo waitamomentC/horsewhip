@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
  * Bundle agent/mcp + skill into extension/media for VSIX and one-click Agent setup.
+ * MCP is esbuild-bundled to a single dist/index.js (no node_modules in VSIX).
  */
 const { spawnSync } = require('node:child_process');
 const crypto = require('node:crypto');
@@ -11,6 +12,7 @@ const extRoot = path.resolve(__dirname, '..');
 const repoRoot = path.resolve(extRoot, '..');
 const mcpSrc = path.join(repoRoot, 'agent', 'mcp');
 const mcpDest = path.join(extRoot, 'media', 'mcp');
+const mcpBundleOut = path.join(mcpDest, 'dist', 'index.js');
 const skillSrc = path.join(repoRoot, 'agent', 'skills', 'horsewhip');
 const skillDest = path.join(extRoot, 'media', 'skills', 'horsewhip');
 
@@ -38,18 +40,37 @@ if (!fs.existsSync(distSrc)) {
 
 fs.rmSync(mcpDest, { recursive: true, force: true });
 fs.mkdirSync(path.join(mcpDest, 'dist'), { recursive: true });
-fs.cpSync(path.join(mcpSrc, 'dist'), path.join(mcpDest, 'dist'), { recursive: true });
-fs.copyFileSync(path.join(mcpSrc, 'package.json'), path.join(mcpDest, 'package.json'));
 
-console.log('→ Installing MCP production deps into extension/media/mcp …');
-run('npm', ['install', '--omit=dev', '--no-package-lock'], mcpDest);
+console.log('→ esbuild bundle MCP → extension/media/mcp/dist/index.js (single file) …');
+run(
+  'npx',
+  [
+    'esbuild',
+    distSrc,
+    '--bundle',
+    '--platform=node',
+    '--format=esm',
+    `--outfile=${mcpBundleOut}`,
+    '--log-level=warning',
+  ],
+  repoRoot,
+);
+
+if (!fs.existsSync(mcpBundleOut)) {
+  console.error('sync-mcp-bundle: esbuild failed — missing', mcpBundleOut);
+  process.exit(1);
+}
+
+try {
+  fs.chmodSync(mcpBundleOut, 0o755);
+} catch {
+  /* windows */
+}
 
 const extPkg = JSON.parse(fs.readFileSync(path.join(extRoot, 'package.json'), 'utf8'));
 const mcpPkg = JSON.parse(fs.readFileSync(path.join(mcpSrc, 'package.json'), 'utf8'));
-const mcpDistSha256 = crypto
-  .createHash('sha256')
-  .update(fs.readFileSync(distSrc))
-  .digest('hex');
+const mcpDistSha256 = crypto.createHash('sha256').update(fs.readFileSync(mcpBundleOut)).digest('hex');
+
 fs.writeFileSync(
   path.join(mcpDest, 'manifest.json'),
   `${JSON.stringify(
@@ -57,6 +78,7 @@ fs.writeFileSync(
       horsewhipExtensionVersion: extPkg.version,
       mcpPackageVersion: mcpPkg.version,
       mcpDistSha256,
+      bundle: 'esbuild-single-file',
       bundledAt: new Date().toISOString(),
     },
     null,
@@ -67,5 +89,6 @@ fs.writeFileSync(
 fs.rmSync(skillDest, { recursive: true, force: true });
 fs.cpSync(skillSrc, skillDest, { recursive: true });
 
-console.log('synced agent/mcp → extension/media/mcp');
+const bundleKb = Math.round(fs.statSync(mcpBundleOut).size / 1024);
+console.log(`synced MCP bundle (${bundleKb} KB, 1 file) → extension/media/mcp/dist/index.js`);
 console.log('synced agent/skills/horsewhip → extension/media/skills/horsewhip');

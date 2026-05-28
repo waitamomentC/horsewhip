@@ -25,6 +25,8 @@
 
 **完整版（Vibecode / Claude Code + Agent）**：命令 **Horsewhip: 配置 Agent（MCP + Skill）** → 重载窗口。详见 [agent-setup.md](./agent-setup.md)。
 
+**守护记录**：泳道顶栏 **「守护记录」** 按钮（有拦截时显示次数）→ 切换到仪表盘；或命令 **Horsewhip: 守护记录**。
+
 ---
 
 ## 2. 打开泳道

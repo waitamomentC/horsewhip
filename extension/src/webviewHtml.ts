@@ -338,6 +338,13 @@ export function buildTimelineHtml(
       color: #fdba74;
     }
     .plugin-bar__btn--accent:hover { background: rgba(251, 146, 60, 0.35); color: #ffedd5; }
+    .plugin-bar__btn--record {
+      border-color: rgba(109, 124, 232, .45);
+      background: rgba(109, 124, 232, .14);
+      color: #c4d0ff;
+      font-weight: 600;
+    }
+    .plugin-bar__btn--record:hover { background: rgba(109, 124, 232, .28); color: #fff; }
     body.hw-plugin .hw-boundary .plugin-bar__btn { margin-left: 0; }
     .hw-whip-btn {
       display: inline-flex; align-items: center; justify-content: center;
@@ -474,6 +481,7 @@ export function buildTimelineHtml(
       <button type="button" class="plugin-bar__btn" id="btn-guard-check" title="对比 git 改动与泳道边界">检查越界</button>
       <button type="button" class="plugin-bar__btn" id="btn-guard-correct" hidden title="把越界纠正文案插入 Chat">插入纠正</button>
       <button type="button" class="plugin-bar__btn" id="btn-guard-revert" hidden title="还原越界文件到 HEAD">还原越界</button>
+      <button type="button" class="plugin-bar__btn plugin-bar__btn--record" id="btn-guard-record" title="查看越界尝试与拦截统计">守护记录</button>
     </span>
     <div class="plugin-bar__actions">
       <button type="button" class="plugin-bar__btn plugin-bar__btn--accent" id="btn-restore-env" hidden title="从预览 commit 回到之前的分支（git switch -）">恢复工作区</button>

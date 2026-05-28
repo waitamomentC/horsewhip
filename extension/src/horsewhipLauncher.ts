@@ -28,7 +28,12 @@ export class HorsewhipLauncherProvider implements vscode.TreeDataProvider<vscode
     agent.description = '完整版 · Vibecode / Claude';
     agent.command = { command: 'horsewhip.setupAgent', title: '配置 Agent' };
 
-    return [open, agent];
+    const record = new vscode.TreeItem('守护记录', vscode.TreeItemCollapsibleState.None);
+    record.iconPath = new vscode.ThemeIcon('graph');
+    record.description = '越界统计 · 分享';
+    record.command = { command: 'horsewhip.openGuardRecord', title: '守护记录' };
+
+    return [open, agent, record];
   }
 
   bindTreeView(treeView: vscode.TreeView<vscode.TreeItem>): void {

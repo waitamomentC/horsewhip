@@ -24,6 +24,7 @@ import {
   writeCommitBlockedMarker,
 } from './boundaryPersist';
 import { fetchWorkingTreeChangedFiles, gitRestorePaths } from './gitRunner';
+import { getCachedTotals, onGuardStatsChanged, recordGuardEvent } from './guardStats';
 import { insertTextIntoChat } from './chatInsert';
 
 let statusBar: vscode.StatusBarItem | undefined;
@@ -218,6 +219,14 @@ export async function handleCommitBlocked(
     allowed: r.allowed,
     overreach: r.overreach,
   });
+  if (r.overreach.length) {
+    void recordGuardEvent(workspaceRoot, {
+      kind: 'commit',
+      files: r.overreach,
+      source,
+      dedupeKey: `commit:${source}:${r.overreach.slice().sort().join('|')}`,
+    });
+  }
   notifyCommitBlockedUi(r, verdict.reason ?? 'commit 已拦截', source);
 
   const { revertOnCommitBlock, offerCorrectionAfterRevert } = guardConfig();
@@ -306,6 +315,15 @@ export async function processCommitBlockedMarker(workspaceRoot: string): Promise
 
   notifyCommitBlockedUi(result, verdict.reason!, marker.source);
 
+  if (marker.overreach.length) {
+    void recordGuardEvent(workspaceRoot, {
+      kind: 'commit',
+      files: marker.overreach,
+      source: marker.source,
+      dedupeKey: `commit-hook:${marker.at}:${marker.overreach.slice().sort().join('|')}`,
+    });
+  }
+
   const { revertOnCommitBlock } = guardConfig();
   if (marker.overreach.length && revertOnCommitBlock === 'always') {
     await revertOverreachFiles(workspaceRoot, result, { skipConfirm: true });
@@ -350,33 +368,46 @@ function pushGuardStatus(payload: BoundaryGuardResult | Record<string, unknown>)
   });
 }
 
+function guardStatsLabel(root: string | undefined): string {
+  const totals = getCachedTotals(root);
+  return totals.blocked > 0 ? ` · 守护 ${totals.blocked}` : '';
+}
+
 function updateStatusBar(result: BoundaryGuardResult | null): void {
   if (!statusBar) return;
+  const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+  const suffix = guardStatsLabel(root);
+  const openRecord = 'horsewhip.openGuardRecord';
+
   if (!result) {
-    statusBar.text = '$(shield) horsewhip 守门';
-    statusBar.tooltip = '在泳道选节点并挥鞭上锁后，可检查 AI 是否改飞';
+    statusBar.text = `$(shield) horsewhip 守门${suffix}`;
+    statusBar.tooltip = suffix
+      ? '点击查看守护记录（越界尝试与拦截统计）'
+      : '在泳道选节点并挥鞭上锁后，可检查 AI 是否改飞';
     statusBar.backgroundColor = undefined;
-    statusBar.command = 'horsewhip.checkBoundary';
+    statusBar.command = suffix ? openRecord : 'horsewhip.checkBoundary';
     return;
   }
   if (!result.hasBoundary) {
-    statusBar.text = '$(unlock) 可自由改码';
-    statusBar.tooltip = '未选中节点：AI 可修改仓库内任何文件。选中节点后仅圈内可改。';
+    statusBar.text = `$(unlock) 可自由改码${suffix}`;
+    statusBar.tooltip = suffix ? '点击查看守护记录' : '未选中节点：AI 可修改仓库内任何文件。选中节点后仅圈内可改。';
     statusBar.backgroundColor = undefined;
-    statusBar.command = 'horsewhip.checkBoundary';
+    statusBar.command = suffix ? openRecord : 'horsewhip.checkBoundary';
     return;
   }
   if (result.ok) {
-    statusBar.text = '$(check) 圈定内可改';
-    statusBar.tooltip = `仅此可改：${result.allowed.map((p) => p).join(', ') || '—'}`;
+    statusBar.text = `$(check) 圈定内可改${suffix}`;
+    statusBar.tooltip = suffix
+      ? `仅此可改：${result.allowed.join(', ') || '—'}\n\n点击查看守护记录`
+      : `仅此可改：${result.allowed.map((p) => p).join(', ') || '—'}`;
     statusBar.backgroundColor = undefined;
-    statusBar.command = 'horsewhip.checkBoundary';
+    statusBar.command = suffix ? openRecord : 'horsewhip.checkBoundary';
     return;
   }
-    statusBar.text = `$(warning) 圈外 ${result.overreach.length}`;
-    statusBar.tooltip = `圈外改动（禁止）：\n${result.overreach.join('\n')}\n\n点击：检查 / 纠正`;
+  statusBar.text = `$(warning) 圈外 ${result.overreach.length}${suffix}`;
+  statusBar.tooltip = `圈外改动（禁止）：\n${result.overreach.join('\n')}\n\n点击查看守护记录`;
   statusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
-  statusBar.command = 'horsewhip.checkBoundary';
+  statusBar.command = openRecord;
 }
 
 export async function runBoundaryGuardCheck(
@@ -536,6 +567,9 @@ export function registerBoundaryGuard(context: vscode.ExtensionContext): void {
   statusBar.command = 'horsewhip.checkBoundary';
   statusBar.show();
   updateStatusBar(null);
+  context.subscriptions.push(
+    onGuardStatsChanged(() => updateStatusBar(lastResult)),
+  );
   context.subscriptions.push(statusBar);
 
   context.subscriptions.push(
