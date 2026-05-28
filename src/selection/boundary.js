@@ -214,6 +214,17 @@ function tryMapMcpPathsToNodes(paths) {
   }
 }
 
+function refreshMcpBoundaryAfterParse() {
+  if (!hw.state.mcpBoundaryLocked) return;
+  const list = hw.getBoundaryFilesList();
+  if (!list.length) return;
+  hw.tryMapMcpPathsToNodes(list);
+  document.body.classList.toggle('hw-mcp-panel-readonly', true);
+  hw.syncBoundaryBar();
+  hw.updateSelectionVisuals();
+  hw.navigateMcpBoundaryPaths?.(list);
+}
+
 function applyBoundaryFromHost(files, locked, options = {}) {
   const list = Array.isArray(files) ? files.filter(Boolean) : [];
   if (options.ceremonyOnly) {
@@ -754,6 +765,7 @@ Object.assign(hw, {
   pathsFromNodeIds,
   rebuildBoundaryFromNodes,
   tryMapMcpPathsToNodes,
+  refreshMcpBoundaryAfterParse,
   applyBoundaryFromHost,
   isBoundaryLocked,
   pushBoundaryLockToPlugin,

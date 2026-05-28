@@ -70,6 +70,7 @@ window.HorsewhipApp = {
   buildBoundaryPrompt: hw.buildBoundaryPrompt,
   clearNodeSelection: hw.clearNodeSelection,
   applyBoundaryFromHost: hw.applyBoundaryFromHost,
+  refreshMcpBoundaryAfterParse: hw.refreshMcpBoundaryAfterParse,
   onHostGuardActive: (active) => hw.onHostGuardActive(active),
   initGuardArmControl: () => hw.initGuardArmControl(),
 };

@@ -53,7 +53,7 @@ import {
 import { isHorsewhipPreCommitHookInstalled, installHorsewhipPreCommitHook } from './boundaryGitHook';
 import { insertTextIntoChat } from './chatInsert';
 import { detectDevStartCommand } from './previewDev';
-import { readAllowlistRecord } from './boundaryPersist';
+import { flushPendingBoundaryWebview, syncMcpBoundaryFromDiskToWebview } from './boundaryWebviewSync';
 import { gitBranchDisplay } from './gitRunner';
 import { bootstrapGuardStats, buildGuardStatsView, onGuardStatsChanged } from './guardStats';
 
@@ -241,13 +241,8 @@ export class HorsewhipTimeline {
     setBoundaryAllowlistWorkspaceRoot(this.workspaceRoot);
     void reloadBoundaryFromDisk(root).then(async () => {
       if (this.workspaceRoot !== root) return;
-      const locked = await getEffectiveBoundaryLocked(root);
-      if (!locked) return;
-      const rec = await readAllowlistRecord(root);
-      if (rec?.lockSource !== 'mcp') return;
-      const files = getBoundaryAllowlist();
-      this.postBoundarySync({ files, locked: true, playWhip: false, panelReadOnly: true });
-      await syncBoundaryLockFromWebview(root, files, true);
+      await syncMcpBoundaryFromDiskToWebview(root);
+      await syncBoundaryLockFromWebview(root, getBoundaryAllowlist(), await getEffectiveBoundaryLocked(root));
     });
     this.projectName = sanitizeRepoName(state.folderName);
 
@@ -292,6 +287,10 @@ export class HorsewhipTimeline {
     if (this.webviewBootLoadStarted || !this.workspaceRoot) return;
     this.webviewBootLoadStarted = true;
     await this.loadFromGit();
+    if (this.workspaceRoot) {
+      flushPendingBoundaryWebview(this.workspaceRoot);
+      void syncMcpBoundaryFromDiskToWebview(this.workspaceRoot);
+    }
   }
 
   private async ensureCommitHookInstalled(): Promise<void> {
@@ -600,6 +599,10 @@ export class HorsewhipTimeline {
         return;
       }
       await this.startWebviewGitLoad();
+      if (this.workspaceRoot) {
+        flushPendingBoundaryWebview(this.workspaceRoot);
+        void syncMcpBoundaryFromDiskToWebview(this.workspaceRoot);
+      }
       return;
     }
     if (msg.type === 'gitCommit') {

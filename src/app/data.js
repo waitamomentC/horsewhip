@@ -202,7 +202,9 @@ function loadAndRender(text) {
     hw.state.catalog = null;
     hw.state.laneSliceCache = null;
     hw.renderFromState({ assignDefaultPulse: true });
-    if (hw.state.selectedNodeIds.size) {
+    if (hw.state.mcpBoundaryLocked) {
+      hw.refreshMcpBoundaryAfterParse?.();
+    } else if (hw.state.selectedNodeIds.size) {
       hw.rebuildBoundaryFromNodes();
       hw.syncBoundaryBar();
     }

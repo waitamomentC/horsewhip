@@ -3,7 +3,12 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { applyBoundaryFromExternalSource, syncBoundaryMemoryFromDisk } from './boundaryHostSync';
 import { getBoundaryAllowlist, getEffectiveBoundaryLocked, reloadBoundaryFromDisk } from './boundaryAllowlist';
-import { HorsewhipPanel } from './horsewhipPanel';
+import {
+  flushPendingBoundaryWebview,
+  postBoundaryToWebview,
+  syncMcpBoundaryFromDiskToWebview,
+  watchHorsewhipMetaWithNodeFs,
+} from './boundaryWebviewSync';
 import { playWhipSoundFromHost } from './whipSoundHost';
 import { recordGuardExpand } from './guardStats';
 import {
@@ -65,6 +70,9 @@ async function handleAllowlistChange(
     if (!trusted) return;
   }
   await syncBoundaryMemoryFromDisk(workspaceRoot);
+  if (rec?.lockSource === 'mcp') {
+    await syncMcpBoundaryFromDiskToWebview(workspaceRoot);
+  }
 }
 
 async function handleMcpSignal(
@@ -90,10 +98,9 @@ async function handleMcpSignal(
     if (playWhip) {
       playWhipSoundFromHost(context.extensionUri);
     }
-    HorsewhipPanel.get()?.timeline.postBoundarySync({
+    postBoundaryToWebview(workspaceRoot, {
       files,
       locked,
-      // MCP 鞭声由扩展宿主播放（webview AudioContext 常因无手势/后台而静默）
       playWhip: false,
       toast,
       ceremony: signal.type === 'task_complete' ? 'task_complete' : undefined,
@@ -168,6 +175,30 @@ function watchHorsewhipMeta(
   signalWatcher.onDidCreate(onSignal);
 
   context.subscriptions.push(allowlistWatcher, signalWatcher);
+
+  const disposeNodeWatch = watchHorsewhipMetaWithNodeFs(
+    workspaceRoot,
+    () => {
+      scheduleDebounced(debounceKey(workspaceRoot, 'allowlist-fs'), () => {
+        void handleAllowlistChange(context, workspaceRoot);
+      });
+    },
+    () => {
+      scheduleDebounced(debounceKey(workspaceRoot, 'signal-fs'), () => {
+        void handleMcpSignal(context, workspaceRoot);
+      });
+    },
+  );
+  context.subscriptions.push({ dispose: disposeNodeWatch });
+}
+
+async function bootstrapMcpBridgeState(
+  context: vscode.ExtensionContext,
+  workspaceRoot: string,
+): Promise<void> {
+  await handleAllowlistChange(context, workspaceRoot);
+  await handleMcpSignal(context, workspaceRoot);
+  flushPendingBoundaryWebview(workspaceRoot);
 }
 
 const watchedRoots = new Set<string>();
@@ -180,6 +211,7 @@ export function registerBoundaryMcpBridge(context: vscode.ExtensionContext): voi
     void allowlistFilePath(root);
     void mcpSignalFilePath(root);
     watchHorsewhipMeta(context, root);
+    void bootstrapMcpBridgeState(context, root);
   };
 
   for (const root of gitWorkspaceRoots()) {

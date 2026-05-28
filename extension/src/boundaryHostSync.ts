@@ -12,7 +12,7 @@ import {
 } from './boundaryGuardHost';
 import { isHorsewhipPreCommitHookInstalled, installHorsewhipPreCommitHook } from './boundaryGitHook';
 import { readAllowlistRecord } from './boundaryPersist';
-import { HorsewhipPanel } from './horsewhipPanel';
+import { postBoundaryToWebview } from './boundaryWebviewSync';
 import { gitBranchDisplay } from './gitRunner';
 
 export type BoundaryHostSyncOptions = {
@@ -48,7 +48,7 @@ export async function applyBoundaryFromExternalSource(
   const viaMcp = rec?.lockSource === 'mcp';
 
   if (options.syncWebview !== false && viaMcp) {
-    HorsewhipPanel.get()?.timeline.postBoundarySync({
+    postBoundaryToWebview(workspaceRoot, {
       files,
       locked,
       playWhip: Boolean(options.playWhip),

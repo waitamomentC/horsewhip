@@ -2307,6 +2307,16 @@ ${lines}
       );
     }
   }
+  function refreshMcpBoundaryAfterParse() {
+    if (!hw.state.mcpBoundaryLocked) return;
+    const list = hw.getBoundaryFilesList();
+    if (!list.length) return;
+    hw.tryMapMcpPathsToNodes(list);
+    document.body.classList.toggle("hw-mcp-panel-readonly", true);
+    hw.syncBoundaryBar();
+    hw.updateSelectionVisuals();
+    hw.navigateMcpBoundaryPaths?.(list);
+  }
   function applyBoundaryFromHost(files, locked, options = {}) {
     const list = Array.isArray(files) ? files.filter(Boolean) : [];
     if (options.ceremonyOnly) {
@@ -2748,6 +2758,7 @@ git reset --hard ${hash}`;
     pathsFromNodeIds,
     rebuildBoundaryFromNodes,
     tryMapMcpPathsToNodes,
+    refreshMcpBoundaryAfterParse,
     applyBoundaryFromHost,
     isBoundaryLocked,
     pushBoundaryLockToPlugin,
@@ -5541,7 +5552,9 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
       hw.state.catalog = null;
       hw.state.laneSliceCache = null;
       hw.renderFromState({ assignDefaultPulse: true });
-      if (hw.state.selectedNodeIds.size) {
+      if (hw.state.mcpBoundaryLocked) {
+        hw.refreshMcpBoundaryAfterParse?.();
+      } else if (hw.state.selectedNodeIds.size) {
         hw.rebuildBoundaryFromNodes();
         hw.syncBoundaryBar();
       }
@@ -5899,6 +5912,7 @@ ${status}${isMain ? "\n\u4E3B\u6CF3\u9053\uFF08\u878D\u5408\u76EE\u6807\uFF09" :
     buildBoundaryPrompt: hw.buildBoundaryPrompt,
     clearNodeSelection: hw.clearNodeSelection,
     applyBoundaryFromHost: hw.applyBoundaryFromHost,
+    refreshMcpBoundaryAfterParse: hw.refreshMcpBoundaryAfterParse,
     onHostGuardActive: (active) => hw.onHostGuardActive(active),
     initGuardArmControl: () => hw.initGuardArmControl()
   };

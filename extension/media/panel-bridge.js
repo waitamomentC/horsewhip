@@ -490,6 +490,15 @@
       window.HorsewhipApp.setGitBranches(msg.branches, msg.currentBranch);
       return true;
     }
+    if (msg.type === 'syncBoundaryFromHost') {
+      window.HorsewhipApp?.applyBoundaryFromHost?.(msg.files || [], Boolean(msg.locked), {
+        playWhip: Boolean(msg.playWhip),
+        toast: msg.toast,
+        ceremonyOnly: Boolean(msg.ceremonyOnly),
+        panelReadOnly: Boolean(msg.panelReadOnly),
+      });
+      return true;
+    }
     return false;
   }
 
